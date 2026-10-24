@@ -1,170 +1,332 @@
-# DJ Director AI
+<p align="center">
+  <img src="docs/images/icon.png" width="96" alt="DJ Director AI">
+</p>
 
-Regista multicamera automatico e *music-aware* per performance DJ. Ascolta in tempo reale il master del
-mixer, stima tempo, beat e stato musicale, e decide **se**, **quando** e **su quale camera** tagliare,
-comandando OBS Studio tramite obs-websocket 5.x. Funziona interamente in locale.
+<h1 align="center">DJ Director AI</h1>
 
-> Principio guida: un bravo regista sa anche quando **non** cambiare camera.
-> `HOLD` è un'azione editoriale normale, e ogni decisione ha un motivo verificabile.
+<p align="center">
+  <b>Il regista multicamera automatico per i tuoi DJ set.</b><br>
+  Ascolta la musica dal mixer e cambia le inquadrature in OBS Studio al posto tuo, a tempo di musica.
+</p>
 
-Stato: **v0.1.1 (Music-Aware Director)**. Leggi [docs/REPORT_v0.1.md](docs/REPORT_v0.1.md) per sapere cosa
-è stato verificato e cosa no, in particolare i test che richiedono Windows, OBS e hardware audio reali.
+<p align="center">
+  <a href="../../releases/latest"><img alt="Download" src="https://img.shields.io/github/v/release/Nicodesy06/Livecuts-dj-?label=download&color=7c6cff"></a>
+  <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6">
+  <img alt="OBS" src="https://img.shields.io/badge/OBS-28%2B-302E31">
+  <a href="../../actions/workflows/build-windows.yml"><img alt="Build" src="https://github.com/Nicodesy06/Livecuts-dj-/actions/workflows/build-windows.yml/badge.svg"></a>
+  <img alt="Offline" src="https://img.shields.io/badge/100%25-offline-2fd17c">
+</p>
 
----
-
-## Cosa fa (v0.1)
-
-- App desktop (PySide6, tema scuro) **in italiano** (o inglese, automatico dalla lingua di Windows) con
-  dashboard, wizard di primo avvio, impostazioni avanzate opzionali.
-- Connessione a OBS (obs-websocket 5.x, incluso in OBS ≥ 28): legge le scene, segue Program/Preview e
-  Studio Mode, rileva rinomina o eliminazione di scene e cambi di scene collection, si riconnette da solo.
-- Associazione scene → ruoli editoriali: `MASTER`, `DETAIL`, `SIDE`, `WIDE`, `OVERHEAD`, `CUSTOM`
-  (numero di camere arbitrario; testato fino a 5).
-- Ingresso audio da interfaccia o mixer USB (PortAudio, preferendo WASAPI su Windows), WASAPI loopback
-  delle uscite (PyAudioWPatch, incluso nella build Windows) e file WAV/FLAC per i test.
-- **Rilevamento automatico della sorgente**: ascolta ogni ingresso e ogni uscita e suggerisce quella che
-  porta il mix (vedi la sezione Behringer UCA222).
-- Analisi musicale causale: livello, bande di frequenza, spectral flux, densità degli onset, novelty,
-  BPM con confidenza, fase del beat, downbeat (euristico, sperimentale) e stati musicali probabilistici
-  con eventi (`sparse_start`, `transition`, `reentry`).
-- Director Engine deterministico e testabile, con tre decisioni separate (opportunità, destinazione,
-  timing), vincoli hard, isteresi e tagli sincronizzati al beat solo quando la confidenza è sufficiente.
-- Tagli non urgenti sui **confini di frase** (4/8 battute) dopo un drop rilevato.
-- Preset Minimal / **Natural** (default) / Dynamic: tre insiemi di parametri dello stesso motore.
-- **Calibrazione della sincronizzazione**: due camere si alternano sul beat mentre regoli l'offset dal vivo.
-- Modalità **Shadow**: calcola e registra tutte le decisioni senza mai comandare OBS.
-- **Simulazione** offline deterministica, con timeline, confronto con switcher a timer e casuale ed
-  export JSON/CSV.
-- Override manuale: un cambio scena fatto a mano in OBS viene riconosciuto e rispettato.
-- Log delle decisioni in JSONL per ogni sessione e log diagnostico con rotazione.
-
-Non fa (ancora): analisi video (v0.2), analisi preventiva delle tracce (v0.3). Non avvia né ferma mai
-registrazione o streaming, non crea, elimina o modifica scene, sorgenti, filtri, audio o profili.
+<p align="center">
+  <img src="docs/images/dashboard.png" alt="Dashboard di DJ Director AI durante una sessione live" width="900">
+</p>
 
 ---
 
-## Installazione (utente finale, Windows 10/11 x64)
+## Indice
 
-1. Scarica `DJDirectorAI-<versione>-win64.zip` dalla pagina **Releases** del repository
-   (insieme a `Guida_DJ_Director_AI.pdf`).
-2. Estrai la cartella dove vuoi, per esempio `C:\Tools\DJDirectorAI`. È una versione **portable**:
-   non serve installare Python.
-3. Avvia `DJDirectorAI.exe`. Al primo avvio parte il wizard.
+- [Cosa fa](#cosa-fa)
+- [Download](#download)
+- [Installazione](#installazione)
+- [Collegamenti e preparazione di OBS](#collegamenti-e-preparazione-di-obs)
+- [Primo avvio: la configurazione guidata](#primo-avvio-la-configurazione-guidata)
+- [Utilizzo](#utilizzo)
+- [Behringer UCA222](#behringer-uca222)
+- [Risoluzione dei problemi](#risoluzione-dei-problemi)
+- [Privacy e sicurezza](#privacy-e-sicurezza)
+- [Per sviluppatori](#per-sviluppatori)
+- [Documentazione](#documentazione)
 
-Configurazione e log vengono salvati in `%APPDATA%\DJDirectorAI` (config) e `%LOCALAPPDATA%\DJDirectorAI\logs`,
-mai nella cartella del programma. La password di OBS è cifrata con **Windows DPAPI** (legata al tuo
-account) e non compare mai nel file di configurazione né nei log.
+---
 
-Nella stessa cartella c'è anche `dj-director-cli.exe` con gli strumenti da riga di comando:
-`devices`, `obs-test`, `simulate`, `selftest`.
+## Cosa fa
 
-## Preparare OBS
+Durante il set tu pensi solo alla musica. DJ Director:
 
-1. OBS ≥ 28 → *Strumenti › Impostazioni server WebSocket* → abilita il server e annota porta e password.
-2. Crea una scena per ogni camera (es. `Cam Master`, `Cam Mixer`, `Cam Side`). DJ Director cambia solo la
-   scena **Program**.
-3. **Studio Mode**: se attivo, DJ Director cambia comunque la scena **Program** (cioè ciò che viene
-   registrato o trasmesso) e non tocca mai la Preview. È una scelta voluta: ciò che il regista decide va in onda.
+- 🎧 **ascolta** il master del mixer (interfaccia audio, mixer USB, scheda di un controller) e ne stima
+  BPM, beat e andamento: groove, breakdown, build-up, drop, transizioni;
+- 🎬 **decide** se e quando tagliare e su quale camera, come un regista discreto: riprese lunghe sul
+  master, inserti brevi sui dettagli, tagli sul beat e sui confini di frase, mai a ogni cassa;
+- 🎛️ **comanda OBS** cambiando la scena *Program* tramite obs-websocket (incluso in OBS 28+), senza
+  toccare registrazione, streaming, sorgenti o filtri;
+- ✋ **rispetta te**: se cambi scena a mano in OBS, il programma se ne accorge e non ti contraddice;
+- 🧪 offre la modalità **Shadow** (decide e mostra tutto senza toccare OBS) e una **Simulazione** su set
+  registrati;
+- 🇮🇹 ha un'interfaccia **in italiano** (o inglese) e funziona **interamente offline**.
 
-## Behringer UCA222 (e interfacce simili)
+> Un bravo regista sa anche quando *non* cambiare camera. Ogni decisione di DJ Director, compresa quella
+> di restare sull'inquadratura attuale, ha un motivo che puoi leggere.
 
-Collega l'uscita **REC** (o booth/master) del mixer agli **ingressi RCA** della UCA222, e la UCA222 al PC
-via USB. Windows mostra due dispositivi:
+---
 
-| Dispositivo Windows | Che cos'è | Come usarlo in DJ Director |
+## Download
+
+➡️ **[Scarica l'ultima versione dalla pagina Releases](../../releases/latest)**
+
+| File | Contenuto |
+|---|---|
+| `DJDirectorAI-<versione>-win64.zip` | Il programma per Windows 10/11 a 64 bit (versione portable, guida inclusa) |
+| `Guida_DJ_Director_AI.pdf` | La guida completa all'utilizzo, da stampare o leggere sul telefono |
+
+Requisiti: Windows 10 o 11 a 64 bit, OBS Studio 28 o successivo, un ingresso audio con il master del mixer.
+Non serve una scheda video particolare né Python: il programma usa circa il 3% di un core della CPU.
+
+---
+
+## Installazione
+
+1. **Scarica** `DJDirectorAI-<versione>-win64.zip` dalla pagina [Releases](../../releases/latest).
+2. **Estrai** lo zip (clic destro → *Estrai tutto…*) in una cartella a tua scelta, per esempio
+   `C:\Programmi DJ\DJDirectorAI`. Non c'è un installer: è una versione *portable*.
+3. **Avvia** `DJDirectorAI.exe`.
+4. Se Windows mostra **"Windows ha protetto il PC"** (SmartScreen, l'eseguibile non è firmato digitalmente),
+   clicca **Ulteriori informazioni → Esegui comunque**. Succede solo la prima volta.
+5. *(Facoltativo)* Crea un collegamento sul desktop: clic destro su `DJDirectorAI.exe` → *Invia a* →
+   *Desktop (crea collegamento)*.
+
+Le impostazioni vengono salvate in `%APPDATA%\DJDirectorAI` e i log in `%LOCALAPPDATA%\DJDirectorAI\logs`,
+non nella cartella del programma. Per disinstallare basta eliminare la cartella (ed eventualmente quelle
+due).
+
+---
+
+## Collegamenti e preparazione di OBS
+
+**Audio**: porta il *mix* al PC con un ingresso di linea. Esempio con la Behringer UCA222:
+
+```
+ Mixer DJ ── uscita REC / BOOTH ──(RCA)──► Behringer UCA222 ──(USB)──► PC
+```
+
+**Video**: le camere entrano in OBS come al solito. In OBS crea **una scena per ogni inquadratura**
+(`Cam Master`, `Cam Mixer`, `Cam Laterale`, `Cam Pubblico`…).
+
+**OBS WebSocket** (una volta sola): in OBS apri *Strumenti › Impostazioni server WebSocket*, spunta
+**Abilita server WebSocket**, lascia la porta **4455** e copia la password da *Mostra informazioni di
+connessione*.
+
+---
+
+## Primo avvio: la configurazione guidata
+
+Al primo avvio una procedura in sei passi ti accompagna in tutto. La puoi riaprire in qualsiasi momento dal
+pulsante **Configurazione guidata**.
+
+| 1 · Collega OBS | 2 · Scegli le camere |
+|---|---|
+| <img src="docs/images/wizard-2-obs.png" width="430" alt="Connessione a OBS"> | <img src="docs/images/wizard-3-camere.png" width="430" alt="Scelta delle camere e dei ruoli"> |
+| Inserisci la password di OBS e premi **Prova connessione**. | Spunta le scene che sono inquadrature, assegna un **ruolo** e scegli il **Master**. |
+
+| 3 · Ingresso audio | 4 · Stile di regia |
+|---|---|
+| <img src="docs/images/wizard-4-audio.png" width="430" alt="Ingresso audio e rilevamento automatico"> | <img src="docs/images/wizard-5-stile.png" width="430" alt="Scelta dello stile di regia"> |
+| Fai suonare musica e premi **Rileva sorgente audio**: il programma trova da solo l'ingresso con il mix. | Scegli **Natural** (consigliato). Per la prima prova lascia attiva la modalità **Shadow**. |
+
+**I ruoli delle camere**
+
+| Ruolo | Inquadratura | Uso da parte del regista |
 |---|---|---|
-| **Microfono (USB Audio CODEC)** | l'ingresso di linea RCA, non un microfono vero | *Audio input* → è la sorgente consigliata (contrassegnata con ★) |
-| **Altoparlanti (USB Audio CODEC)** | l'uscita RCA/cuffie | *WASAPI loopback* → solo se il software DJ suona **dal PC attraverso la UCA222** |
+| **MASTER** | Principale, frontale sul DJ | L'"ancora": 60–75% del tempo, riprese da 30–90 s |
+| **DETAIL** | Mani, mixer, piatti | Inserti brevi (5–15 s), soprattutto durante i mix |
+| **SIDE** | Laterale | Inserti medi (7–25 s) |
+| **WIDE** | Campo largo, pubblico | Inserti medi, preferiti sui drop |
+| **OVERHEAD** | Dall'alto | Inserti brevi, durante le transizioni |
+| **CUSTOM** | Altro | Uso neutro |
 
-- Nella pagina **Audio** (o nel wizard) premi **Rileva sorgente audio** mentre la musica suona: il
-  programma ascolta tutti gli ingressi e le uscite e seleziona quella con il mix.
-- Canali: lascia **1 + 2** (stereo mixato in mono).
-- Se il livello è fermo a zero esatto, Windows sta bloccando il "microfono" alle app desktop:
-  *Impostazioni › Privacy e sicurezza › Microfono › Consenti alle app desktop di accedere al microfono*.
-  DJ Director lo rileva e mostra l'avviso.
-- La UCA222 non ha un controllo di guadagno in ingresso: se il segnale è basso, alza il livello di
-  registrazione in *Impostazioni audio di Windows › Microfono (USB Audio CODEC) › Livelli*, oppure l'uscita
-  REC del mixer. Evita il clipping (il meter diventa rosso).
-- OBS può usare lo stesso ingresso nello stesso momento (modalità condivisa): non ci sono conflitti.
+---
 
-## Primo utilizzo (wizard)
+## Utilizzo
 
-1. **OBS**: host, porta, password, poi *Test connection*.
-2. **Cameras**: spunta le scene che sono inquadrature, assegna un ruolo e scegli una camera Master.
-3. **Audio**: scegli l'ingresso che porta il **master del mixer** (non un microfono ambientale) e i canali,
-   poi verifica che il meter si muova.
-4. **Preset**: Natural è consigliato.
-5. Consigliato: lascia attiva la **Shadow mode** per la prima prova. Vedrai le decisioni nella dashboard
-   e nel log senza alcun cambio in OBS.
+### Una serata in 5 passi
 
-Dalla Dashboard: **Start Auto Director** (va LIVE), *Start Shadow*, **Pause/Resume**, **Stop**,
-**Force Master**. Lo stato è sempre visibile: `OFF / ARMED / LIVE / SHADOW / PAUSED / ERROR`.
+1. Accendi mixer e interfaccia audio, apri **OBS** e controlla che le camere si vedano.
+2. Apri **DJ Director**: OBS risulta *Connesso* da solo.
+3. Fai partire un brano: in alto compare **"Pronto per la regia"**.
+4. In OBS avvia **registrazione o streaming** come sempre.
+5. In DJ Director premi **Avvia regia automatica**… e suona.
 
-## Calibrazione della sincronizzazione
+Per intervenire durante il set: clicca una scena in OBS (il cambio manuale viene rispettato), premi
+**Forza Master** o **Pausa**. A fine set premi **Stop**: OBS continua a registrare finché non lo fermi tu.
 
-In *Regia › Calibrazione della sincronizzazione*: scegli due camere, avvia, fai suonare un brano con una
-cassa evidente e guarda l'uscita Program di OBS. Le camere si alternano ogni 8 beat; sposta il cursore
-finché il taglio cade esattamente sulla cassa (taglio in ritardo → aumenta l'offset). Alla fermata il
-valore viene salvato.
+### Dashboard
 
-## Override manuale
+<img src="docs/images/dashboard.png" alt="Dashboard" width="900">
 
-Se durante la regia automatica cambi scena a mano in OBS:
-- *Respect for a while, then resume* (default): il programma rispetta la tua scelta per 30 s
-  (configurabile), poi riprende.
-- *Respect until I press Resume*: resta fermo finché non premi Resume.
-- *Adopt and continue*: adotta la nuova inquadratura e continua.
-- Se passi a una scena **non gestita** (es. "Be Right Back"), la regia si sospende sempre fino a Resume:
-  non verrai mai "tirato fuori" da una scena di servizio.
+- **In alto**: se il programma è pronto, i pulsanti principali e lo stato (`LIVE`, `SHADOW`, `PAUSED`…).
+- **OBS Studio**: connessione e scena in onda.
+- **Audio e musica**: livello, **BPM**, affidabilità del beat e stato musicale (*Groove stabile*, *Ritmo
+  ridotto*, *Ripartenza forte*…).
+- **Regia**: camera in onda, da quanto tempo, ultimo taglio e il suo motivo.
+- **Mappa camere**: in rosso la camera **IN ONDA**, in giallo la **PROSSIMA** (taglio programmato sul beat).
+- **Decisioni recenti**: ogni decisione con il motivo reale (*TIENI* è una decisione normale).
 
-## Uso da riga di comando (sviluppo e diagnostica)
+### Camere
+
+<img src="docs/images/camere.png" alt="Pagina Camere" width="900">
+
+Associa ogni scena di OBS a un ruolo e scegli il Master. Durate, peso e cooldown sono facoltativi
+("predefinito" va bene quasi sempre). Se rinomini una scena in OBS, il programma si aggiorna da solo.
+
+### Audio e rilevamento automatico della sorgente
+
+<img src="docs/images/audio-rilevamento.png" alt="Rilevamento automatico della sorgente audio" width="900">
+
+**Rileva sorgente audio** ascolta per un secondo ogni ingresso e ogni uscita (loopback) e suggerisce quella
+che porta il mix. Gli ingressi di linea vengono preferiti ai microfoni ambientali. Nella stessa pagina trovi
+il livello in tempo reale, il clipping e le impostazioni di analisi (per esempio il *Tempo tipico* del tuo
+genere).
+
+### OBS
+
+<img src="docs/images/obs.png" alt="Pagina OBS" width="900">
+
+Host, porta e password (salvata **cifrata** con la protezione di Windows). Con lo Studio Mode attivo,
+DJ Director cambia comunque la scena **Program** e non tocca mai la Preview.
+
+### Regia: stile, comportamento e calibrazione
+
+<img src="docs/images/regia.png" alt="Pagina Regia" width="900">
+
+Tre stili, cioè tre impostazioni dello stesso motore:
+
+| Stile | Carattere | Tagli al minuto (indicativi) |
+|---|---|---|
+| **Minimal** | Molto sobrio, riprese lunghe, pochi inserti | ~1 |
+| **Natural** | Bilanciato e musicale (consigliato) | ~2 |
+| **Dynamic** | Più movimento, mai frenetico | ~5 |
+
+<img src="docs/images/regia-calibrazione.png" alt="Calibrazione della sincronizzazione" width="900">
+
+**Calibrazione della sincronizzazione** (consigliata una volta): due camere si alternano esattamente sul
+beat. Sposta il cursore finché il taglio cade sulla cassa (taglio in ritardo → più anticipo), poi premi
+**Ferma calibrazione** per salvare il valore.
+
+### Simulazione
+
+<img src="docs/images/simulazione.png" alt="Simulazione con timeline e metriche" width="900">
+
+Fai passare un set registrato (WAV/FLAC) attraverso il vero regista, molto più veloce del tempo reale e
+senza OBS né camere. La timeline mostra le inquadrature e gli eventi musicali, e la tabella confronta il
+regista con uno switcher a timer e con uno casuale. È il modo migliore per scegliere lo stile adatto alla
+tua musica.
+
+### Decisioni e log
+
+<img src="docs/images/decisioni.png" alt="Decisioni e diagnostica" width="900">
+
+Tutte le decisioni con il loro motivo, le latenze misurate e l'accesso alla cartella dei log (un file JSONL
+per ogni sessione).
+
+---
+
+## Behringer UCA222
+
+Windows mostra la UCA222 come due dispositivi:
+
+| Dispositivo Windows | Che cos'è | Come usarlo |
+|---|---|---|
+| **Microfono (USB Audio CODEC)** | L'**ingresso RCA** (non un microfono vero) | *Ingresso audio* → è la sorgente consigliata, indicata con ★ |
+| **Altoparlanti (USB Audio CODEC)** | L'uscita RCA/cuffie | *Loopback WASAPI* → solo se il software DJ suona dal PC attraverso la UCA222 |
+
+- Canali: **1 + 2**.
+- Se il livello resta a **zero esatto**, Windows sta bloccando il "microfono": *Impostazioni › Privacy e
+  sicurezza › Microfono › Consenti alle app desktop di accedere al microfono*. Il programma lo rileva e lo
+  segnala.
+- La UCA222 non ha un controllo di guadagno: regola il livello dall'uscita REC del mixer, evitando il
+  clipping (il meter diventa rosso).
+- OBS può usare lo stesso ingresso nello stesso momento.
+
+Vanno bene anche altre interfacce audio, la scheda audio interna di mixer e controller DJ o un mixer USB.
+
+---
+
+## Risoluzione dei problemi
+
+| Problema | Soluzione |
+|---|---|
+| OBS "Disconnesso" | OBS è aperto? Il server WebSocket è abilitato? Porta 4455? |
+| OBS "Password errata" | Ricopia la password nella pagina **OBS** e premi **Salva e connetti** |
+| Nessun segnale audio | Controlla il cavo dall'uscita REC del mixer all'interfaccia e usa **Rileva sorgente audio** |
+| Livello a zero esatto | Privacy microfono di Windows (vedi la sezione UCA222) |
+| BPM doppi o dimezzati | *Audio › Analisi › Tempo tipico*: impostalo vicino al tuo genere |
+| Taglia troppo / troppo poco | Prova lo stile **Minimal** o **Dynamic** |
+| Resta su `ARMED` | Leggi il messaggio: di solito OBS non è connesso o manca una scena |
+
+Altri casi nella [guida completa](docs/GUIDA_UTENTE.md#11-risoluzione-dei-problemi).
+
+---
+
+## Privacy e sicurezza
+
+- Nessuna telemetria, nessun account, nessun servizio cloud: **l'audio non lascia mai il PC**.
+- Il programma comunica solo con OBS sull'indirizzo configurato (di default `127.0.0.1`).
+- In OBS usa solo cinque comandi: lettura di versione, elenco scene, collezione di scene e stato dello
+  Studio Mode, più il cambio della scena Program.
+  **Non** crea, elimina o modifica scene, sorgenti, filtri o audio e **non** avvia né ferma registrazione
+  o streaming. Lo garantisce un elenco di comandi consentiti nel codice, verificato dai test.
+- La password di OBS è cifrata con Windows DPAPI e non compare mai in configurazione o nei log.
+
+---
+
+## Per sviluppatori
 
 ```bash
-dj-director                      # GUI
-dj-director devices              # elenca ingressi audio e loopback
-dj-director obs-test --password X
-dj-director simulate set.wav --preset natural --json out.json --csv out.csv
-dj-director simulate --synthetic # set sintetico con ground truth
-dj-director synth test.wav       # scrive il set sintetico su file
-dj-director fake-obs --port 4455 # finto server OBS (richiede 'websockets')
-dj-director selftest             # verifica headless di installazione/build
+git clone https://github.com/Nicodesy06/Livecuts-dj-.git && cd Livecuts-dj-
+python -m venv .venv && . .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -r requirements-lock.txt && pip install -e ".[dev]"
+QT_QPA_PLATFORM=offscreen pytest                     # 120+ test: unit, integrazione, GUI, qualità
+python -m dj_director                                # avvia l'interfaccia
 ```
 
-## Sviluppo
+Strumenti da riga di comando (anche come `dj-director-cli.exe` nella release):
 
 ```bash
-python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -r requirements-lock.txt
-pip install -e ".[dev]"
-QT_QPA_PLATFORM=offscreen pytest                   # Windows (PowerShell): $env:QT_QPA_PLATFORM="offscreen"
+dj-director simulate set.wav --preset natural --json out.json   # replay offline di un set
+dj-director devices                                             # elenca gli ingressi audio
+dj-director obs-test --password XXX                             # prova la connessione a OBS
+dj-director fake-obs                                            # OBS simulato per i test
+dj-director selftest                                            # verifica di un'installazione
 ```
 
-Su Linux servono `libportaudio2`, `libegl1`, `libxkbcommon0` e `libfontconfig1`.
+**Build Windows**: `powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1` (test, PyInstaller,
+self-test degli eseguibili, guida PDF, zip). La CI (`.github/workflows/build-windows.yml`) fa lo stesso su
+ogni push. Per pubblicare una release: *Actions › test-and-build-windows › Run workflow* con
+`release_tag` (es. `v0.1.2`).
 
-Build Windows riproducibile (crea `dist\DJDirectorAI\` e lo zip, esegue i test e il `selftest`
-sugli eseguibili congelati):
+**Struttura**
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1
+```
+src/dj_director/
+├── audio/       acquisizione (PortAudio, loopback WASAPI, file), riconoscimento e rilevamento sorgenti
+├── music/       feature spettrali, beat tracker causale, stati musicali
+├── director/    motore decisionale, camere, calibrazione
+├── obs/         client obs-websocket 5 con allow-list, controller, OBS simulato
+├── simulation/  replay deterministico, set sintetico, metriche editoriali
+├── ui/          interfaccia PySide6 e traduzioni
+├── config/      configurazione validata, preset, password cifrata
+└── core/        contratti tipizzati, application controller
 ```
 
-La stessa procedura gira in CI su `windows-latest` (`.github/workflows/build-windows.yml`). Per
-pubblicare una release: *Actions › test-and-build-windows › Run workflow*, indicando `release_tag`
-(es. `v0.1.2`), oppure facendo il push di un tag `vX.Y.Z`. La CI crea la release GitHub con lo zip
-verificato e la guida in PDF (note di rilascio in `docs/release-notes/vX.Y.Z.md`).
+Gli screenshot di questa pagina sono generati con `scripts/make_screenshots.py`: il programma reale,
+collegato all'OBS simulato incluso e a un set audio sintetico. L'elenco dei dispositivi audio e la tabella
+del rilevamento mostrano un esempio con la UCA222, perché la macchina che genera le immagini non ha una
+scheda audio.
+
+---
 
 ## Documentazione
 
-- **[docs/GUIDA_UTENTE.md](docs/GUIDA_UTENTE.md): guida all'utilizzo** (anche in PDF nella release).
-- [docs/TECHNICAL_AUDIT.md](docs/TECHNICAL_AUDIT.md): verifica tecnica di librerie, API e rischi.
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): moduli, thread, flussi dati, stati, confine tra regole,
-  euristiche e AI.
-- [docs/DIRECTOR.md](docs/DIRECTOR.md): come decide il regista (scoring, vincoli, timing, preset).
-- [docs/TESTING.md](docs/TESTING.md): test automatici, risultati misurati, checklist dei test manuali.
-- [docs/REPORT_v0.1.md](docs/REPORT_v0.1.md): report finale della milestone.
-- [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md): licenze delle dipendenze.
+| Documento | Contenuto |
+|---|---|
+| [Guida all'utilizzo](docs/GUIDA_UTENTE.md) | Manuale completo per l'utente (anche in PDF nella release) |
+| [Come decide il regista](docs/DIRECTOR.md) | Opportunità, scelta della camera, timing, preset |
+| [Architettura](docs/ARCHITECTURE.md) | Moduli, thread, flussi di dati |
+| [Audit tecnico](docs/TECHNICAL_AUDIT.md) | Scelte tecnologiche, librerie e rischi |
+| [Test e risultati](docs/TESTING.md) | Test automatici, misure, checklist dei test manuali |
+| [Report v0.1](docs/REPORT_v0.1.md) | Stato del progetto, limiti noti, prossimi passi |
+| [Changelog](CHANGELOG.md) | Novità di ogni versione |
+| [Licenze di terze parti](THIRD_PARTY_LICENSES.md) | Componenti inclusi e loro licenze |
 
-## Privacy
+---
 
-Nessuna telemetria, nessun account, nessun servizio cloud. L'audio non lascia mai il computer. Il
-programma comunica solo con OBS sull'host e sulla porta configurati (di default `127.0.0.1`).
+<p align="center"><sub>© 2026 Nicola Mantovani · Tutti i diritti riservati · vedi <a href="LICENSE">LICENSE</a></sub></p>

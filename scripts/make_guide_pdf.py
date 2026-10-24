@@ -8,8 +8,10 @@ import sys
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-from PySide6.QtCore import QMarginsF, QSizeF
-from PySide6.QtGui import QFont, QGuiApplication, QPageLayout, QPageSize, QPdfWriter, QTextDocument
+import re
+
+from PySide6.QtCore import QMarginsF, Qt, QUrl
+from PySide6.QtGui import QFont, QGuiApplication, QImage, QPageLayout, QPageSize, QPdfWriter, QTextDocument
 
 ROOT = Path(__file__).resolve().parents[1]
 CSS = """
@@ -36,7 +38,18 @@ def main() -> int:
     doc.setMarkdown(md)
     # setMarkdown ignores the default stylesheet for some elements: re-apply via HTML round trip
     html = doc.toHtml()
+    # screenshots are 1440 px wide: scale them to the text width
+    sources = set(re.findall(r'<img src="([^"]+)"', html))
+    html = re.sub(r'<img src="([^"]+)"[^>]*/?>',
+                  lambda m: f'<img src="{m.group(1)}" width="560" />', html)
     doc2 = QTextDocument()
+    # images must be registered as resources: letting the document load them from a base URL
+    # produces a blank PDF with QPdfWriter
+    for src in sources:
+        img = QImage(str(ROOT / "docs" / src))
+        if not img.isNull():
+            doc2.addResource(QTextDocument.ImageResource, QUrl(src),
+                             img.scaledToWidth(1240, Qt.SmoothTransformation))
     doc2.setDefaultStyleSheet(CSS)
     doc2.setHtml(html)
     writer = QPdfWriter(str(out))
@@ -46,6 +59,7 @@ def main() -> int:
     writer.setTitle("DJ Director AI — Guida all'utilizzo")
     writer.setCreator("DJ Director AI")
     doc2.print_(writer)        # QTextDocument paginates to the writer's page layout
+    del writer                 # the PDF is finalised when the writer is destroyed
     print(f"guide written to {out} ({out.stat().st_size // 1024} KB)")
     return 0
 

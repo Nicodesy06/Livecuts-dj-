@@ -61,7 +61,8 @@ class SimulationPage(QWidget):
         self.bpm = QDoubleSpinBox(); self.bpm.setRange(70, 180); self.bpm.setValue(124)
         f.addRow(tr("Synthetic tempo"), self.bpm)
         self.preset = QComboBox()
-        self.preset.addItems(["natural", "minimal", "dynamic"])
+        for name in ("natural", "minimal", "dynamic"):
+            self.preset.addItem(tr(name.capitalize()), name)
         f.addRow(tr("Preset"), self.preset)
         f.addRow("", label(tr("Uses your configured cameras (or 3 demo cameras if none are configured)."), "Faint"))
         v.addWidget(box)
@@ -116,7 +117,7 @@ class SimulationPage(QWidget):
         from dj_director.simulation.replay import default_cameras, load_audio, run_replay
         from dj_director.simulation.synth import generate
         cfg = copy.deepcopy(self.ctrl.config)
-        cfg.director.preset = self.preset.currentText()
+        cfg.director.preset = self.preset.currentData()
         cams = [c for c in cfg.cameras if c.enabled] or default_cameras(3)
         use_file = self.r_file.isChecked() and self.path.text().strip()
         path, bpm = self.path.text().strip(), self.bpm.value()

@@ -38,7 +38,12 @@ class SetupWizard(QWizard):
         self.cfg = copy.deepcopy(ctrl.config)
         self.scenes: list[str] = []
         self.setWindowTitle(tr("DJ Director AI — Setup"))
-        self.setWizardStyle(QWizard.ModernStyle)
+        # Classic style draws titles inside the page (ModernStyle's white header clashes with the
+        # dark theme on Windows and offscreen)
+        self.setWizardStyle(QWizard.ClassicStyle)
+        for btn, text in ((QWizard.BackButton, "< Back"), (QWizard.NextButton, "Next >"),
+                          (QWizard.CancelButton, "Cancel"), (QWizard.FinishButton, "Finish")):
+            self.setButtonText(btn, tr(text))
         self.setMinimumSize(760, 560)
         self.setOption(QWizard.NoBackButtonOnStartPage, True)
         self._worker = Worker()
@@ -157,7 +162,7 @@ class SetupWizard(QWizard):
         self.cam_rows = []
         self.master_group = QButtonGroup(self)
         for h, txt in enumerate(("Use", "Scene", "Role", "Master")):
-            self.cam_grid.addWidget(label(txt, "CardTitle"), 0, h)
+            self.cam_grid.addWidget(label(tr(txt), "CardTitle"), 0, h)
         if not names:
             self.cam_grid.addWidget(label(tr("No scenes available (OBS not connected). You can map cameras later "
                                           "on the Cameras page."), "Muted", wrap=True), 1, 0, 1, 4)

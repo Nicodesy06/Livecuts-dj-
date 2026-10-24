@@ -40,7 +40,10 @@ class SourceDetectBox(QGroupBox):
         v.addLayout(row)
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels([tr("Device"), tr("Type"), tr("Level"), tr("Activity"), tr("Result")])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        hdr = self.table.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.Stretch)
+        for col in (1, 2, 3, 4):
+            hdr.setSectionResizeMode(col, QHeaderView.ResizeToContents)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.verticalHeader().setVisible(False)

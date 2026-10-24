@@ -220,7 +220,12 @@ class DashboardPage(QWidget):
         self.audio_dot.set_color(T.LIVE if a.clipping else T.OK if a.signal_present else
                                  T.WARN if a.running else T.FAINT)
         if a.running:
-            name = a.device_name if len(a.device_name) < 48 else "…" + a.device_name[-46:]
+            name = a.device_name
+            if a.backend == "file":
+                from pathlib import Path
+                name = tr("File: {0}").format(Path(name).name)
+            elif len(name) >= 48:
+                name = "…" + name[-46:]
             self.audio_dev.setText(f"{name}")
         else:
             self.audio_dev.setText(a.error or tr("No audio source selected"))

@@ -458,4 +458,6 @@ IT: dict[str, str] = {
     # ---- settings
     "Interface language (restart required)": "Lingua dell'interfaccia (richiede riavvio)",
     "Automatic": "Automatica",
+    "< Back": "< Indietro", "Next >": "Avanti >", "Cancel": "Annulla", "Finish": "Fine",
+    "File: {0}": "File: {0}", "Scene": "Scena",
 }

@@ -87,6 +87,8 @@ QTableWidget, QTableView, QListWidget {{
     background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 10px; gridline-color: {BORDER};
     alternate-background-color: {SURFACE_2};
 }}
+QTableCornerButton::section {{ background: {SURFACE_2}; border: none; }}
+QWizard QLabel#qt_wizard_title, QWizardPage QLabel {{ color: {TEXT}; }}
 QHeaderView::section {{ background: {SURFACE_2}; color: {MUTED}; border: none; border-bottom: 1px solid {BORDER}; padding: 6px; font-weight: 600; }}
 QTableWidget::item {{ padding: 4px; }}
 QTableWidget::item:selected {{ background: {SURFACE_3}; }}

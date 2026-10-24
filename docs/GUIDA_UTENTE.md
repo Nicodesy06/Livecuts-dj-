@@ -1,6 +1,6 @@
 # DJ Director AI — Guida all'utilizzo
 
-Versione 0.1.1 · Windows 10/11 (64 bit)
+Versione 0.1.2 · Windows 10/11 (64 bit)
 
 DJ Director AI è un regista automatico per i tuoi DJ set. Ascolta la musica che esce dal mixer, ne capisce
 l'andamento (tempo, beat, breakdown, drop) e cambia da solo le inquadrature in OBS Studio, come farebbe
@@ -26,7 +26,7 @@ Non serve Python, non serve un account, non serve Internet. Nessun dato audio o 
 
 ## 2. Installazione
 
-1. Scarica **`DJDirectorAI-0.1.1-win64.zip`** dalla pagina *Releases* del progetto su GitHub.
+1. Scarica **`DJDirectorAI-0.1.2-win64.zip`** dalla pagina *Releases* del progetto su GitHub.
 2. Fai clic destro sullo zip → **Estrai tutto…** in una cartella a tua scelta, per esempio
    `C:\Programmi DJ\DJDirectorAI`. È una versione *portable*: non c'è un'installazione vera e propria.
 3. Apri la cartella ed esegui **`DJDirectorAI.exe`**.
@@ -89,6 +89,8 @@ avvia né ferma** registrazione o streaming. Fa una sola cosa: cambia la scena *
 Al primo avvio si apre la **Configurazione guidata**. Puoi riaprirla in qualsiasi momento dal pulsante in
 basso a sinistra.
 
+![Configurazione guidata: connessione a OBS](images/wizard-2-obs.png)
+
 1. **Benvenuto**: un riepilogo di cosa farai.
 2. **Collega OBS**: con OBS aperto, inserisci host `127.0.0.1`, porta `4455` e la password copiata, poi
    premi **Prova connessione**. Deve comparire "Connesso" con il numero di scene trovate.
@@ -97,6 +99,10 @@ basso a sinistra.
 4. **Ingresso audio**: fai suonare musica sul mixer e premi **Rileva sorgente audio**. Il programma
    ascolta ogni ingresso e ogni uscita per un secondo e seleziona quella con il mix. Poi premi **Usa
    selezionata** e controlla che l'indicatore di livello si muova.
+![Configurazione guidata: camere e ruoli](images/wizard-3-camere.png)
+
+![Configurazione guidata: ingresso audio con rilevamento automatico](images/wizard-4-audio.png)
+
 5. **Stile di regia**: scegli **Natural** (consigliato).
 6. **Pronto**: lascia spuntata **"Usa la modalità Shadow come predefinita"** per la prima prova.
 
@@ -116,6 +122,8 @@ Puoi avere più camere con lo stesso ruolo. Serve **un solo Master**.
 ---
 
 ## 6. La Dashboard
+
+![La Dashboard durante una sessione live](images/dashboard.png)
 
 È la schermata principale. In alto, sotto il titolo, trovi lo stato: **"Pronto per la regia"** in verde
 oppure **"Non pronto: …"** in giallo, con l'elenco di cosa manca.
@@ -188,12 +196,16 @@ Premi **Stop** in DJ Director, poi ferma la registrazione in OBS.
 
 ### Camere
 
+![Pagina Camere](images/camere.png)
+
 L'elenco delle scene di OBS. Per ciascuna: **Usa**, **Ruolo**, **Master**, **Peso** (più alto = scelta più
 spesso) e, facoltative, le durate (**Min**, **Media**, **Max**) e il **Cooldown** (tempo minimo prima di
 riusare un inserto). Lascia "predefinito" se non hai esigenze particolari. Premi **Salva mappa camere**.
 Se rinomini una scena in OBS, DJ Director aggiorna il nome da solo.
 
 ### Audio
+
+![Pagina Audio con il rilevamento automatico](images/audio-rilevamento.png)
 
 - **Tipo**: *Ingresso audio* (normale), *Loopback WASAPI* (ascolta un'uscita del PC) o *File audio*
   (per le prove).
@@ -207,11 +219,15 @@ Se rinomini una scena in OBS, DJ Director aggiorna il nome da solo.
 
 ### OBS
 
+![Pagina OBS](images/obs.png)
+
 Host, porta e password (salvata **cifrata** con la protezione di Windows), più **Prova connessione** e
 **Salva e connetti**. Con lo **Studio Mode** attivo, DJ Director cambia comunque la scena **Program**
 (quella registrata) e non tocca la Preview.
 
 ### Regia
+
+![Pagina Regia](images/regia.png)
 
 - **Stile**: *Minimal* (pochi tagli, riprese lunghe), *Natural* (consigliato), *Dynamic* (più movimento,
   ma mai un taglio a ogni beat).
@@ -223,12 +239,16 @@ Host, porta e password (salvata **cifrata** con la protezione di Windows), più 
 
 ### Simulazione
 
+![Simulazione con timeline e confronto](images/simulazione.png)
+
 Fa passare un set registrato (WAV/FLAC), o un set sintetico di prova, attraverso il vero regista, molto più
 veloce del tempo reale e **senza OBS né camere**. Mostra la timeline delle inquadrature e la confronta
 con uno switcher a timer e con uno casuale. Utile per provare stili e impostazioni sulla tua musica prima
 della serata.
 
 ### Decisioni e log
+
+![Decisioni e diagnostica](images/decisioni.png)
 
 L'elenco completo delle decisioni, le latenze misurate e il pulsante **Apri cartella log**. Ogni sessione
 salva un file `decisions-AAAAMMGG-HHMMSS.jsonl`.
@@ -240,6 +260,8 @@ salva un file `decisions-AAAAMMGG-HHMMSS.jsonl`.
 Tra il momento in cui il programma ordina il cambio e quello in cui vedi l'immagine cambiare passa un
 piccolo ritardo, che dipende da camere e PC. La calibrazione serve a far cadere i tagli esattamente
 sulla cassa.
+
+![Calibrazione della sincronizzazione](images/regia-calibrazione.png)
 
 1. Apri **Regia › Calibrazione della sincronizzazione**.
 2. Scegli **Camera A** e **Camera B** (due inquadrature ben diverse) e "ogni 8 beat".

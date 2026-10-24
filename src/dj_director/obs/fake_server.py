@@ -34,6 +34,9 @@ class FakeObsServer:
         self.fail_switches = False
         self.response_delay = 0.0
         self.refuse_connections = False      # simulate OBS being closed
+        self.obs_version = "31.0.0-fake"
+        self.ws_version = "5.5.0-fake"
+        self.collection = "Fake Collection"
         self._clients = set()
         self._lock = threading.Lock()
         self._server = serve(self._handler, host, port)
@@ -94,7 +97,7 @@ class FakeObsServer:
             ws.close(1001, "OBS is not running")
             return
         salt, challenge = secrets.token_urlsafe(16), secrets.token_urlsafe(16)
-        hello = {"obsWebSocketVersion": "5.5.0-fake", "rpcVersion": 1}
+        hello = {"obsWebSocketVersion": self.ws_version, "rpcVersion": 1}
         if self.password:
             hello["authentication"] = {"challenge": challenge, "salt": salt}
         ws.send(json.dumps({"op": 0, "d": hello}))
@@ -129,7 +132,7 @@ class FakeObsServer:
             time.sleep(self.response_delay)
         ok, code, comment, resp = True, 100, "", {}
         if rtype == "GetVersion":
-            resp = {"obsVersion": "31.0.0-fake", "obsWebSocketVersion": "5.5.0-fake", "rpcVersion": 1}
+            resp = {"obsVersion": self.obs_version, "obsWebSocketVersion": self.ws_version, "rpcVersion": 1}
         elif rtype == "GetSceneList":
             resp = {"currentProgramSceneName": self.program, "currentProgramSceneUuid": self._uuid(self.program),
                     "currentPreviewSceneName": self.preview if self.studio_mode else None,
@@ -137,7 +140,7 @@ class FakeObsServer:
         elif rtype == "GetStudioModeEnabled":
             resp = {"studioModeEnabled": self.studio_mode}
         elif rtype == "GetSceneCollectionList":
-            resp = {"currentSceneCollectionName": "Fake Collection", "sceneCollections": ["Fake Collection"]}
+            resp = {"currentSceneCollectionName": self.collection, "sceneCollections": [self.collection]}
         elif rtype == "SetCurrentProgramScene":
             name = data.get("sceneName") or next(
                 (s["sceneName"] for s in self.scenes if s["sceneUuid"] == data.get("sceneUuid")), None)
