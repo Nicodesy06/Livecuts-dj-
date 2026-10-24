@@ -1,0 +1,308 @@
+"""Configuration schema with validation.
+
+Configuration is stored as JSON. Loading is tolerant: unknown keys are
+ignored, wrong types fall back to defaults and numeric values are clamped to
+their documented ranges. Every correction is reported so the UI/log can show
+it. Secrets (the OBS password) are never part of this schema; see
+:mod:`dj_director.config.secrets`.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Optional
+
+
+class CameraRole(str, Enum):
+    MASTER = "MASTER"
+    DETAIL = "DETAIL"
+    SIDE = "SIDE"
+    WIDE = "WIDE"
+    OVERHEAD = "OVERHEAD"
+    CUSTOM = "CUSTOM"
+
+
+# (min, mean, max preferred, cooldown) seconds, before preset scaling.
+ROLE_DURATIONS: dict[CameraRole, tuple[float, float, float, float]] = {
+    CameraRole.MASTER: (8.0, 36.0, 90.0, 0.0),
+    CameraRole.DETAIL: (5.0, 9.0, 15.0, 20.0),
+    CameraRole.SIDE: (7.0, 15.0, 25.0, 15.0),
+    CameraRole.WIDE: (7.0, 15.0, 25.0, 15.0),
+    CameraRole.OVERHEAD: (5.0, 10.0, 18.0, 20.0),
+    CameraRole.CUSTOM: (6.0, 12.0, 20.0, 15.0),
+}
+
+# Numeric ranges: field name -> (min, max). Used for clamping.
+_RANGES: dict[str, tuple[float, float]] = {
+    "port": (1, 65535),
+    "connect_timeout": (0.5, 30),
+    "request_timeout": (0.2, 30),
+    "weight": (0.0, 3.0),
+    "priority": (0, 10),
+    # 0 (durations) / -1 (cooldown) mean "use the role default"
+    "min_duration": (0.0, 600),
+    "mean_duration": (0.0, 900),
+    "max_duration": (0.0, 1800),
+    "cooldown": (-1.0, 600),
+    "sample_rate": (0, 384000),
+    "block_size": (64, 8192),
+    "silence_db": (-90, -20),
+    "min_bpm": (40, 150),
+    "max_bpm": (90, 260),
+    "prior_bpm": (60, 200),
+    "beats_per_bar": (2, 12),
+    "sensitivity": (0.25, 3.0),
+    "latency_offset_ms": (-500, 1000),
+    "override_seconds": (1, 3600),
+    "cut_threshold": (0.3, 3.0),
+    "master_duration_scale": (0.2, 4.0),
+    "insert_duration_scale": (0.2, 4.0),
+    "duration_spread": (0.0, 1.0),
+    "min_cut_gap": (0.5, 120),
+    "max_cuts_per_minute": (0.5, 30),
+    "max_consecutive_inserts": (1, 8),
+    "music_trigger_gain": (0.0, 3.0),
+    "musical_cut_confidence": (0.0, 1.0),
+    "sync_confidence": (0.0, 1.0),
+    "downbeat_confidence": (0.0, 1.0),
+    "max_sync_wait": (0.0, 8.0),
+    "hysteresis": (0.0, 2.0),
+    "variety_jitter": (0.0, 1.0),
+}
+
+
+@dataclass
+class ObsConfig:
+    host: str = "127.0.0.1"
+    port: int = 4455
+    auto_connect: bool = True
+    connect_timeout: float = 5.0
+    request_timeout: float = 3.0
+
+
+@dataclass
+class AudioConfig:
+    backend: str = "input"            # "input" | "loopback" | "file"
+    device_name: str = ""             # matched by name (indices change on hotplug)
+    host_api: str = ""                # e.g. "Windows WASAPI"; empty = any
+    channels: list[int] = field(default_factory=lambda: [0, 1])  # zero-based, mixed to mono
+    sample_rate: int = 0              # 0 = device default
+    block_size: int = 512
+    file_path: str = ""
+    file_loop: bool = True
+
+
+@dataclass
+class AnalysisConfig:
+    silence_db: float = -55.0
+    min_bpm: float = 70.0
+    max_bpm: float = 180.0
+    prior_bpm: float = 124.0
+    beats_per_bar: int = 4
+    sensitivity: float = 1.0          # >1 = reacts to smaller musical changes
+
+
+@dataclass
+class CameraConfig:
+    scene_name: str = ""
+    scene_uuid: str = ""
+    role: CameraRole = CameraRole.CUSTOM
+    enabled: bool = True
+    is_master: bool = False
+    fallback: bool = False
+    weight: float = 1.0
+    priority: int = 5
+    min_duration: float = 0.0         # 0 = role default
+    mean_duration: float = 0.0
+    max_duration: float = 0.0
+    cooldown: float = -1.0            # <0 = role default
+    allowed_states: list[str] = field(default_factory=list)  # empty = all states
+
+    def durations(self) -> tuple[float, float, float, float]:
+        rmin, rmean, rmax, rcool = ROLE_DURATIONS[self.role]
+        mn = self.min_duration or rmin
+        mean = max(self.mean_duration or rmean, mn)
+        mx = max(self.max_duration or rmax, mean)
+        cool = rcool if self.cooldown < 0 else self.cooldown
+        return mn, mean, mx, cool
+
+
+@dataclass
+class DirectorParams:
+    """One engine, three parameter sets. See :mod:`dj_director.config.presets`."""
+    cut_threshold: float = 1.0
+    master_duration_scale: float = 1.0
+    insert_duration_scale: float = 1.0
+    duration_spread: float = 0.35     # lognormal sigma of sampled shot lengths
+    min_cut_gap: float = 5.0
+    max_cuts_per_minute: float = 5.0
+    max_consecutive_inserts: int = 2
+    music_trigger_gain: float = 1.0
+    musical_cut_confidence: float = 0.55
+    sync_confidence: float = 0.45
+    prefer_downbeat: bool = True
+    downbeat_confidence: float = 0.5
+    max_sync_wait: float = 2.5
+    hysteresis: float = 0.25
+    variety_jitter: float = 0.15
+
+
+@dataclass
+class DirectorConfig:
+    preset: str = "natural"
+    overrides: dict[str, Any] = field(default_factory=dict)  # DirectorParams field -> value
+    override_policy: str = "timed"    # "timed" | "until_resume" | "adopt"
+    override_seconds: float = 30.0
+    no_signal_policy: str = "master"  # "master" | "hold"
+    latency_offset_ms: float = 40.0   # command is sent this early w.r.t. the musical target
+    seed: int = 0                     # 0 = random per session; fixed => reproducible
+
+
+@dataclass
+class AppConfig:
+    schema_version: int = 1
+    first_run_done: bool = False
+    shadow_mode: bool = False
+    obs: ObsConfig = field(default_factory=ObsConfig)
+    audio: AudioConfig = field(default_factory=AudioConfig)
+    analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
+    director: DirectorConfig = field(default_factory=DirectorConfig)
+    cameras: list[CameraConfig] = field(default_factory=list)
+    log_decisions: bool = True
+
+    def master_camera(self) -> Optional[CameraConfig]:
+        for c in self.cameras:
+            if c.is_master and c.enabled:
+                return c
+        return None
+
+
+# --------------------------------------------------------------------------- (de)serialisation
+def to_dict(obj: Any) -> Any:
+    if dataclasses.is_dataclass(obj):
+        return {f.name: to_dict(getattr(obj, f.name)) for f in dataclasses.fields(obj)}
+    if isinstance(obj, Enum):
+        return obj.value
+    if isinstance(obj, list):
+        return [to_dict(v) for v in obj]
+    if isinstance(obj, dict):
+        return {k: to_dict(v) for k, v in obj.items()}
+    return obj
+
+
+def _coerce(name: str, default: Any, value: Any, issues: list[str], path: str) -> Any:
+    if isinstance(default, bool):
+        if isinstance(value, bool):
+            return value
+        issues.append(f"{path}: expected bool")
+        return default
+    if isinstance(default, Enum):
+        try:
+            return type(default)(value)
+        except ValueError:
+            issues.append(f"{path}: invalid value {value!r}")
+            return default
+    if isinstance(default, (int, float)):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            issues.append(f"{path}: expected number")
+            return default
+        v = type(default)(value)
+        if name in _RANGES:
+            lo, hi = _RANGES[name]
+            if v < lo or v > hi:
+                issues.append(f"{path}: {v} clamped to [{lo}, {hi}]")
+                v = type(default)(min(max(v, lo), hi))
+        return v
+    if isinstance(default, str):
+        if isinstance(value, str):
+            return value
+        issues.append(f"{path}: expected string")
+        return default
+    return value
+
+
+def from_dict(cls: type, data: Any, issues: Optional[list[str]] = None, path: str = "") -> Any:
+    if issues is None:
+        issues = []
+    inst = cls()
+    if not isinstance(data, dict):
+        issues.append(f"{path or cls.__name__}: expected object")
+        return inst
+    for f in dataclasses.fields(cls):
+        if f.name not in data:
+            continue
+        value = data[f.name]
+        default = getattr(inst, f.name)
+        p = f"{path}.{f.name}" if path else f.name
+        if dataclasses.is_dataclass(default):
+            setattr(inst, f.name, from_dict(type(default), value, issues, p))
+        elif f.name == "cameras":
+            if isinstance(value, list):
+                setattr(inst, f.name, [from_dict(CameraConfig, v, issues, f"{p}[{i}]")
+                                       for i, v in enumerate(value)])
+            else:
+                issues.append(f"{p}: expected list")
+        elif f.name in ("channels",):
+            if isinstance(value, list) and all(isinstance(x, int) and x >= 0 for x in value) and value:
+                setattr(inst, f.name, list(value)[:8])
+            else:
+                issues.append(f"{p}: expected list of channel indices")
+        elif f.name == "allowed_states":
+            if isinstance(value, list) and all(isinstance(x, str) for x in value):
+                setattr(inst, f.name, list(value))
+            else:
+                issues.append(f"{p}: expected list of strings")
+        elif f.name == "overrides":
+            if isinstance(value, dict):
+                setattr(inst, f.name, validate_overrides(value, issues, p))
+            else:
+                issues.append(f"{p}: expected object")
+        else:
+            setattr(inst, f.name, _coerce(f.name, default, value, issues, p))
+    _post_validate(inst, issues, path)
+    return inst
+
+
+def validate_overrides(data: dict, issues: list[str], path: str = "overrides") -> dict:
+    defaults = DirectorParams()
+    names = {f.name for f in dataclasses.fields(DirectorParams)}
+    out = {}
+    for k, v in data.items():
+        if k not in names:
+            issues.append(f"{path}.{k}: unknown parameter ignored")
+            continue
+        out[k] = _coerce(k, getattr(defaults, k), v, issues, f"{path}.{k}")
+    return out
+
+
+def _post_validate(inst: Any, issues: list[str], path: str) -> None:
+    if isinstance(inst, AudioConfig) and inst.backend not in ("input", "loopback", "file"):
+        issues.append(f"{path}.backend: unknown backend {inst.backend!r}")
+        inst.backend = "input"
+    if isinstance(inst, AnalysisConfig) and inst.min_bpm * 1.5 > inst.max_bpm:
+        issues.append(f"{path}: BPM range too narrow, reset")
+        inst.min_bpm, inst.max_bpm = 70.0, 180.0
+    if isinstance(inst, DirectorConfig):
+        if inst.override_policy not in ("timed", "until_resume", "adopt"):
+            issues.append(f"{path}.override_policy: invalid, reset")
+            inst.override_policy = "timed"
+        if inst.no_signal_policy not in ("master", "hold"):
+            issues.append(f"{path}.no_signal_policy: invalid, reset")
+            inst.no_signal_policy = "master"
+    if isinstance(inst, AppConfig):
+        masters = [c for c in inst.cameras if c.is_master]
+        if len(masters) > 1:
+            issues.append("cameras: more than one master; keeping the first")
+            for c in masters[1:]:
+                c.is_master = False
+        seen = set()
+        unique = []
+        for c in inst.cameras:
+            if not c.scene_name or c.scene_name in seen:
+                issues.append(f"cameras: duplicate/empty scene {c.scene_name!r} dropped")
+                continue
+            seen.add(c.scene_name)
+            unique.append(c)
+        inst.cameras = unique

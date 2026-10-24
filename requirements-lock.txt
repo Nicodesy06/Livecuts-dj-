@@ -1,0 +1,11 @@
+# Pinned runtime dependencies used for reproducible builds (verified together).
+numpy==2.5.3
+PySide6-Essentials==6.12.0
+shiboken6==6.12.0
+sounddevice==0.5.6
+soundfile==0.14.0
+cffi==2.1.1
+pycparser==3.0
+websocket-client==1.9.2
+# Windows only, optional WASAPI loopback capture
+PyAudioWPatch==0.2.12.7; platform_system == "Windows"
