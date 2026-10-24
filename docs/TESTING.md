@@ -73,7 +73,7 @@ su registrazioni reali.
 
 ## Test manuali ancora da eseguire (richiedono Windows + OBS + hardware)
 
-1. [ ] Build CI `windows-latest` verde e `selftest` di entrambi gli eseguibili superato.
+1. [x] Build CI `windows-latest` verde e `selftest` di entrambi gli eseguibili superato (run 40097924239).
 2. [ ] Avvio di `DJDirectorAI.exe` su Windows 11 e Windows 10, wizard completo.
 3. [ ] OBS 30/31 reale: connessione con e senza password, lettura scene, cambio Program, Studio Mode con
        transizione lunga, cambio di scene collection durante la sessione, chiusura e riapertura di OBS.

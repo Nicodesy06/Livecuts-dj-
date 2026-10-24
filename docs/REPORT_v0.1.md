@@ -26,7 +26,7 @@ hardware audio**. Questa distinzione è riportata in ogni sezione.
 | Log delle decisioni e motivazioni | ✅ | JSONL per sessione; motivi generati dai fattori effettivi |
 | Configurazione persistente, corruzione gestita | ✅ | test di roundtrip e di recupero con backup |
 | Procedura di packaging riproducibile | ✅ spec + script + CI | spec verificata con una build congelata **su Linux** (selftest OK su entrambi gli eseguibili) |
-| `.exe` costruito e verificato | ❌ **non ancora** | serve Windows: la CI `windows-latest` costruisce, testa ed esegue il `selftest` dell'`.exe`, ma qui non ho potuto eseguirla né vederne l'esito |
+| `.exe` costruito e verificato | ✅ in CI (headless) | CI `windows-latest` (run 40097924239): test superati su Windows/Python 3.12, build PyInstaller, `selftest` superato da `DJDirectorAI.exe` e `dj-director-cli.exe`, zip caricato come artifact `DJDirectorAI-win64`. Non ancora provato a mano su un PC con OBS e audio reali |
 
 **Totale test automatici: 95, tutti superati** (unit 64, integrazione 25, harness 6), durata ~3 min.
 
@@ -42,7 +42,7 @@ hardware audio**. Questa distinzione è riportata in ogni sezione.
 
 ## 3. Problemi noti e limiti
 
-1. Nessun test con OBS reale, interfacce audio reali o Windows (vedi la checklist in `docs/TESTING.md`).
+1. Nessun test con OBS reale o interfacce audio reali; su Windows solo test automatici e selftest headless in CI (vedi la checklist in `docs/TESTING.md`).
 2. La regia è agganciata al beat ma **poco ai confini strutturali**: sul set sintetico solo 1 taglio su 9
    (Natural) cade vicino a un cambio di sezione. Gli eventi musicali influenzano l'opportunità, ma
    gran parte dei tagli nasce dalla durata pianificata.
@@ -55,7 +55,7 @@ hardware audio**. Questa distinzione è riportata in ogni sezione.
 
 ## 4. Prossimo incremento prioritario (v0.1.1, prima della v0.2)
 
-1. **Validazione su hardware reale**: build CI Windows verde, poi un DJ set di 60+ minuti in Shadow,
+1. **Validazione su hardware reale**: un DJ set di 60+ minuti in Shadow,
    revisione umana della timeline e ritaratura delle soglie degli stati musicali con registrazioni vere
    (il replay deterministico lo consente senza OBS).
 2. **Timing strutturale**: quando la pressione di durata è moderata, attendere il prossimo confine
@@ -81,4 +81,4 @@ hardware audio**. Questa distinzione è riportata in ogni sezione.
 | Simulazione e Shadow | `src/dj_director/simulation/`, pagina *Simulation*, pulsante *Start Shadow* |
 | Documentazione | `README.md`, `docs/` |
 | Script di build Windows | `scripts/build_windows.ps1`, `packaging/dj_director.spec`, `.github/workflows/build-windows.yml` |
-| Eseguibile verificato | **in attesa della CI Windows** |
+| Eseguibile verificato | artifact CI `DJDirectorAI-win64` (selftest superato su Windows) |

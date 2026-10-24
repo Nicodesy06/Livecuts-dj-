@@ -21,6 +21,24 @@ def qapp():
     return app
 
 
+@pytest.fixture(autouse=True)
+def _destroy_widgets(qapp):
+    """Destroy every widget through Qt before Python's GC gets to them.
+
+    Letting interpreter shutdown collect Qt objects in arbitrary order can
+    segfault (seen on CI after all tests had passed).
+    """
+    yield
+    import gc
+    for w in QApplication.topLevelWidgets():
+        w.close()
+        w.deleteLater()
+    for _ in range(3):
+        qapp.processEvents()
+    gc.collect()
+    qapp.processEvents()
+
+
 def _window(qapp):
     from dj_director.ui.main_window import MainWindow
     ctrl = AppController()
@@ -72,6 +90,7 @@ def test_director_page_saves_overrides(qapp):
     ctrl = AppController()
     try:
         p = DirectorPage(ctrl)
+        p.show()
         p.preset_cards["minimal"].setChecked(True)
         p.adv.setChecked(True)
         p.param_widgets["min_cut_gap"].setValue(12.0)
@@ -87,6 +106,7 @@ def test_simulation_page_runs(qapp):
     ctrl = AppController()
     try:
         p = SimulationPage(ctrl)
+        p.show()
         p.run()
         t0 = time.time()
         while p.result is None and time.time() - t0 < 60:
