@@ -6,6 +6,11 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Publish a GitHub Release with this tag (e.g. v0.1.1). Leave empty to only build."
+        required: false
+        default: ""
 
 jobs:
   test-linux:
@@ -39,9 +44,10 @@ jobs:
             dist/DJDirectorAI-*-win64.zip
             dist/Guida_DJ_Director_AI.pdf
 
-  # Publishing a tag vX.Y.Z creates the GitHub Release with the verified Windows build attached.
+  # A pushed tag vX.Y.Z, or a manual run with release_tag set, creates the GitHub Release
+  # (and the tag, on the built commit) with the verified Windows build attached.
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     needs: [test-linux, build-windows]
     runs-on: ubuntu-latest
     permissions:
@@ -55,9 +61,10 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           ls -la out
-          notes="docs/release-notes/${GITHUB_REF_NAME}.md"
+          notes="docs/release-notes/${TAG}.md"
           [ -f "$notes" ] || notes="README.md"
-          gh release create "$GITHUB_REF_NAME" out/DJDirectorAI-*-win64.zip out/Guida_DJ_Director_AI.pdf \
-            --title "DJ Director AI ${GITHUB_REF_NAME#v}" --notes-file "$notes"
+          gh release create "$TAG" out/DJDirectorAI-*-win64.zip out/Guida_DJ_Director_AI.pdf \
+            --target "$GITHUB_SHA" --title "DJ Director AI ${TAG#v}" --notes-file "$notes"

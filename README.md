@@ -148,9 +148,10 @@ sugli eseguibili congelati):
 powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1
 ```
 
-La stessa procedura gira in CI su `windows-latest` (`.github/workflows/build-windows.yml`). Pubblicando
-un tag `vX.Y.Z` la CI crea automaticamente la release GitHub con lo zip verificato e la guida in PDF
-(note di rilascio in `docs/release-notes/vX.Y.Z.md`).
+La stessa procedura gira in CI su `windows-latest` (`.github/workflows/build-windows.yml`). Per
+pubblicare una release: *Actions › test-and-build-windows › Run workflow*, indicando `release_tag`
+(es. `v0.1.2`), oppure facendo il push di un tag `vX.Y.Z`. La CI crea la release GitHub con lo zip
+verificato e la guida in PDF (note di rilascio in `docs/release-notes/vX.Y.Z.md`).
 
 ## Documentazione
 
