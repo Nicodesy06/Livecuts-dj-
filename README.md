@@ -45,7 +45,8 @@ registrazione o streaming, non crea, elimina o modifica scene, sorgenti, filtri,
 
 ## Installazione (utente finale, Windows 10/11 x64)
 
-1. Scarica `DJDirectorAI-<versione>-win64.zip` dalla build (artifact della CI *test-and-build-windows*).
+1. Scarica `DJDirectorAI-<versione>-win64.zip` dalla pagina **Releases** del repository
+   (insieme a `Guida_DJ_Director_AI.pdf`).
 2. Estrai la cartella dove vuoi, per esempio `C:\Tools\DJDirectorAI`. È una versione **portable**:
    non serve installare Python.
 3. Avvia `DJDirectorAI.exe`. Al primo avvio parte il wizard.
@@ -147,10 +148,13 @@ sugli eseguibili congelati):
 powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1
 ```
 
-La stessa procedura gira in CI su `windows-latest` (`.github/workflows/build-windows.yml`).
+La stessa procedura gira in CI su `windows-latest` (`.github/workflows/build-windows.yml`). Pubblicando
+un tag `vX.Y.Z` la CI crea automaticamente la release GitHub con lo zip verificato e la guida in PDF
+(note di rilascio in `docs/release-notes/vX.Y.Z.md`).
 
 ## Documentazione
 
+- **[docs/GUIDA_UTENTE.md](docs/GUIDA_UTENTE.md): guida all'utilizzo** (anche in PDF nella release).
 - [docs/TECHNICAL_AUDIT.md](docs/TECHNICAL_AUDIT.md): verifica tecnica di librerie, API e rischi.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): moduli, thread, flussi dati, stati, confine tra regole,
   euristiche e AI.

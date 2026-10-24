@@ -121,7 +121,8 @@ def test_scene_rename_updates_persisted_config(env):
     ctrl, srv = env
     srv.rename_scene("Cam D", "Cam Decks")
     assert wait(lambda: any(c.scene_name == "Cam Decks" for c in ctrl.config.cameras))
-    assert any(c.scene_name == "Cam Decks" for c in ConfigManager().load().cameras)
+    # the director thread saves right after updating memory: wait for the file, don't race it
+    assert wait(lambda: any(c.scene_name == "Cam Decks" for c in ConfigManager().load().cameras))
 
 
 def test_force_master(env):

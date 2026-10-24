@@ -32,6 +32,11 @@ $p = Start-Process dist\DJDirectorAI\DJDirectorAI.exe -ArgumentList "selftest --
 Get-Content selftest-gui.txt
 if ($p.ExitCode -ne 0) { throw "GUI exe selftest failed" }
 
+# User guide (PDF rendered with Qt + Markdown source) shipped inside the portable folder
+& $venvPy scripts\make_guide_pdf.py dist\Guida_DJ_Director_AI.pdf
+if ($LASTEXITCODE -ne 0) { throw "guide PDF generation failed" }
+Copy-Item dist\Guida_DJ_Director_AI.pdf dist\DJDirectorAI\
+Copy-Item docs\GUIDA_UTENTE.md dist\DJDirectorAI\GUIDA_UTENTE.md
 Copy-Item README.md, LICENSE, THIRD_PARTY_LICENSES.md dist\DJDirectorAI\
 $ver = & $venvPy -c "import dj_director; print(dj_director.__version__)"
 Compress-Archive -Path dist\DJDirectorAI -DestinationPath "dist\DJDirectorAI-$ver-win64.zip" -Force
