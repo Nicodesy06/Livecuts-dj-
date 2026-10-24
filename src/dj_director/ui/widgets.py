@@ -9,6 +9,7 @@ from PySide6.QtCore import QObject, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget)
 
+from dj_director.ui.i18n import tr, tr_decision, tr_reason, tr_state
 from dj_director.ui import theme as T
 
 
@@ -154,13 +155,13 @@ class CameraTile(QFrame):
 
     def set_state(self, on_air: bool, pending: bool, enabled: bool, available: bool) -> None:
         if on_air:
-            border, bg, txt = T.LIVE, T.rgba(T.LIVE, 0.12), "ON AIR"
+            border, bg, txt = T.LIVE, T.rgba(T.LIVE, 0.12), tr("ON AIR")
         elif pending:
-            border, bg, txt = T.WARN, T.rgba(T.WARN, 0.08), "NEXT"
+            border, bg, txt = T.WARN, T.rgba(T.WARN, 0.08), tr("NEXT")
         elif not available:
-            border, bg, txt = T.BORDER, T.SURFACE, "MISSING"
+            border, bg, txt = T.BORDER, T.SURFACE, tr("MISSING")
         elif not enabled:
-            border, bg, txt = T.BORDER, T.SURFACE, "DISABLED"
+            border, bg, txt = T.BORDER, T.SURFACE, tr("DISABLED")
         else:
             border, bg, txt = T.BORDER, T.SURFACE, ""
         self.state.setText(txt)
@@ -197,7 +198,7 @@ class TimelineWidget(QWidget):
         p.fillRect(self.rect(), QColor(T.SURFACE))
         if not self.shots:
             p.setPen(QColor(T.FAINT))
-            p.drawText(self.rect(), Qt.AlignCenter, "Run a simulation to see the shot timeline")
+            p.drawText(self.rect(), Qt.AlignCenter, tr("Run a simulation to see the shot timeline"))
             return
         sx = (w - 20) / self.duration
         top, bar_h = 26, h - 56

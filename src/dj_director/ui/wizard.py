@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QFormLayout, 
                                QLineEdit, QPushButton, QRadioButton, QSpinBox, QVBoxLayout, QWidget,
                                QWizard, QWizardPage)
 
+from dj_director.ui.i18n import tr, tr_decision, tr_reason, tr_state
 from dj_director.audio.backends import list_input_devices, list_loopback_devices
 from dj_director.config.presets import PRESET_DESCRIPTIONS
 from dj_director.config.schema import CameraConfig, CameraRole
@@ -16,6 +17,8 @@ from dj_director.core.controller import AppController
 from dj_director.obs.controller import ObsController
 from dj_director.ui import theme as T
 from dj_director.ui.settings_pages import CamerasPage
+from dj_director.audio.probe import recommend
+from dj_director.ui.source_detect import SourceDetectBox
 from dj_director.ui.widgets import LevelMeter, Worker, label
 
 
@@ -34,7 +37,7 @@ class SetupWizard(QWizard):
         self.ctrl = ctrl
         self.cfg = copy.deepcopy(ctrl.config)
         self.scenes: list[str] = []
-        self.setWindowTitle("DJ Director AI — Setup")
+        self.setWindowTitle(tr("DJ Director AI — Setup"))
         self.setWizardStyle(QWizard.ModernStyle)
         self.setMinimumSize(760, 560)
         self.setOption(QWizard.NoBackButtonOnStartPage, True)
@@ -42,33 +45,33 @@ class SetupWizard(QWizard):
         self._worker.done.connect(self._tested)
 
         # 1. welcome
-        p = _Page("Welcome", "DJ Director follows your set and switches OBS cameras for you.")
-        p.v.addWidget(label("You will: connect OBS, map your camera scenes to roles, choose the audio input "
+        p = _Page(tr("Welcome"), tr("DJ Director follows your set and switches OBS cameras for you."))
+        p.v.addWidget(label(tr("You will: connect OBS, map your camera scenes to roles, choose the audio input "
                             "carrying your mixer's master output, and pick a directing style. Nothing in OBS is "
                             "created, deleted or modified — only the Program scene is switched while Auto "
-                            "Director is running.", wrap=True))
+                            "Director is running."), wrap=True))
         p.v.addStretch()
         self.addPage(p)
 
         # 2. OBS
-        p = _Page("Connect OBS", "OBS › Tools › WebSocket Server Settings: enable the server, copy port and password.")
+        p = _Page(tr("Connect OBS"), tr("OBS › Tools › WebSocket Server Settings: enable the server, copy port and password."))
         f = QFormLayout()
         self.host = QLineEdit(self.cfg.obs.host)
         self.port = QSpinBox(); self.port.setRange(1, 65535); self.port.setValue(self.cfg.obs.port)
         self.pw = QLineEdit(ctrl.get_password()); self.pw.setEchoMode(QLineEdit.Password)
-        f.addRow("Host", self.host); f.addRow("Port", self.port); f.addRow("Password", self.pw)
+        f.addRow(tr("Host"), self.host); f.addRow(tr("Port"), self.port); f.addRow(tr("Password"), self.pw)
         p.v.addLayout(f)
-        b = QPushButton("Test connection")
+        b = QPushButton(tr("Test connection"))
         b.clicked.connect(self._test)
         p.v.addWidget(b, 0, Qt.AlignLeft)
-        self.obs_result = label("Not tested yet. You can also skip and configure OBS later.", "Muted", wrap=True)
+        self.obs_result = label(tr("Not tested yet. You can also skip and configure OBS later."), "Muted", wrap=True)
         p.v.addWidget(self.obs_result)
         p.v.addStretch()
         self.addPage(p)
 
         # 3. cameras
-        self.cam_page = _Page("Cameras", "Tick the scenes that are camera shots and give each a role. "
-                              "Choose one master (the main, wide-ish shot of the DJ).")
+        self.cam_page = _Page(tr("Cameras"), tr("Tick the scenes that are camera shots and give each a role. "
+                              "Choose one master (the main, wide-ish shot of the DJ)."))
         self.cam_grid = QGridLayout()
         self.cam_page.v.addLayout(self.cam_grid)
         self.cam_page.v.addStretch()
@@ -76,31 +79,34 @@ class SetupWizard(QWizard):
         self.addPage(self.cam_page)
 
         # 4. audio
-        p = _Page("Audio input", "Select the input that carries the mixer master (not a room microphone).")
+        p = _Page(tr("Audio input"), tr("Select the input that carries the mixer master (not a room microphone)."))
         f = QFormLayout()
         self.backend = QComboBox()
-        self.backend.addItem("Audio input (interface / mixer)", "input")
-        self.backend.addItem("WASAPI loopback", "loopback")
+        self.backend.addItem(tr("Audio input (interface / mixer)"), "input")
+        self.backend.addItem(tr("WASAPI loopback"), "loopback")
         self.device = QComboBox(); self.device.setMinimumWidth(400)
         self.channels = QComboBox()
         for txt, ch in (("1 + 2", [0, 1]), ("1", [0]), ("2", [1]), ("3 + 4", [2, 3])):
             self.channels.addItem(txt, ch)
-        f.addRow("Type", self.backend); f.addRow("Device", self.device); f.addRow("Channels", self.channels)
+        f.addRow(tr("Type"), self.backend); f.addRow(tr("Device"), self.device); f.addRow(tr("Channels"), self.channels)
         p.v.addLayout(f)
-        b2 = QPushButton("Use this input and check the signal")
+        b2 = QPushButton(tr("Use this input and check the signal"))
         b2.clicked.connect(self._apply_audio)
         p.v.addWidget(b2, 0, Qt.AlignLeft)
         self.meter = LevelMeter(16)
         p.v.addWidget(self.meter)
-        self.audio_result = label("Play some music on the mixer: the meter should move.", "Muted", wrap=True)
+        self.audio_result = label(tr("Play some music on the mixer: the meter should move."), "Muted", wrap=True)
         p.v.addWidget(self.audio_result)
+        self.detect = SourceDetectBox()
+        self.detect.chosen.connect(self._use_detected)
+        p.v.addWidget(self.detect)
         p.v.addStretch()
         self.backend.currentIndexChanged.connect(self._fill_devices)
         self._fill_devices()
         self.addPage(p)
 
         # 5. preset
-        p = _Page("Directing style", "You can change this any time.")
+        p = _Page(tr("Directing style"), tr("You can change this any time."))
         self.preset_group = QButtonGroup(self)
         for i, name in enumerate(("minimal", "natural", "dynamic")):
             rb = QRadioButton(f"{name.capitalize()} — {PRESET_DESCRIPTIONS[name]}")
@@ -111,12 +117,12 @@ class SetupWizard(QWizard):
         self.addPage(p)
 
         # 6. finish
-        p = _Page("Ready", "Recommended: start with a Shadow run to see the decisions without touching OBS.")
-        self.shadow = QCheckBox("Use Shadow mode by default (decisions logged, OBS not commanded)")
+        p = _Page(tr("Ready"), tr("Recommended: start with a Shadow run to see the decisions without touching OBS."))
+        self.shadow = QCheckBox(tr("Use Shadow mode by default (decisions logged, OBS not commanded)"))
         self.shadow.setChecked(True)
         p.v.addWidget(self.shadow)
-        p.v.addWidget(label("From the Dashboard: Start Auto Director to go live, Pause/Resume, Stop, or Force "
-                            "Master at any time. A scene change you make in OBS is always respected.",
+        p.v.addWidget(label(tr("From the Dashboard: Start Auto Director to go live, Pause/Resume, Stop, or Force "
+                            "Master at any time. A scene change you make in OBS is always respected."),
                             "Muted", wrap=True))
         p.v.addStretch()
         self.addPage(p)
@@ -127,18 +133,18 @@ class SetupWizard(QWizard):
 
     # ------------------------------------------------------------------ OBS
     def _test(self) -> None:
-        self.obs_result.setText("Testing…")
+        self.obs_result.setText(tr("Testing…"))
         self._worker.run(ObsController.test_connection, self.host.text().strip(), self.port.value(), self.pw.text())
 
     def _tested(self, res, exc) -> None:
         if exc or not res[0]:
             self.obs_result.setStyleSheet(f"color: {T.LIVE};")
-            self.obs_result.setText(f"Failed: {exc or res[1]}")
+            self.obs_result.setText(tr("Failed: {0}").format(exc or res[1]))
             return
         ok, msg, scenes = res
         self.scenes = scenes
         self.obs_result.setStyleSheet(f"color: {T.OK};")
-        self.obs_result.setText(f"Connected — {msg}. {len(scenes)} scenes found.")
+        self.obs_result.setText(tr("Connected — {0}. {1} scenes found.").format(msg, len(scenes)))
 
     # ------------------------------------------------------------------ cameras
     def _fill_cameras(self) -> None:
@@ -153,8 +159,8 @@ class SetupWizard(QWizard):
         for h, txt in enumerate(("Use", "Scene", "Role", "Master")):
             self.cam_grid.addWidget(label(txt, "CardTitle"), 0, h)
         if not names:
-            self.cam_grid.addWidget(label("No scenes available (OBS not connected). You can map cameras later "
-                                          "on the Cameras page.", "Muted", wrap=True), 1, 0, 1, 4)
+            self.cam_grid.addWidget(label(tr("No scenes available (OBS not connected). You can map cameras later "
+                                          "on the Cameras page."), "Muted", wrap=True), 1, 0, 1, 4)
         for i, n in enumerate(names, start=1):
             c = known.get(n)
             role = c.role if c else CamerasPage._guess_role(n)
@@ -173,12 +179,21 @@ class SetupWizard(QWizard):
     def _fill_devices(self) -> None:
         self.device.clear()
         devs = list_loopback_devices() if self.backend.currentData() == "loopback" else list_input_devices()
+        best = None if self.cfg.audio.device_name else recommend(devs)
         for d in devs:
             self.device.addItem(d.label, (d.name, d.host_api))
-            if d.name == self.cfg.audio.device_name:
+            if d.name == self.cfg.audio.device_name or d is best:
                 self.device.setCurrentIndex(self.device.count() - 1)
         if not devs:
-            self.device.addItem("(no devices found)", None)
+            self.device.addItem(tr("(no devices found)"), None)
+
+    def _use_detected(self, dev) -> None:
+        self.backend.setCurrentIndex(max(0, self.backend.findData("loopback" if dev.kind == "loopback" else "input")))
+        self._fill_devices()
+        for i in range(self.device.count()):
+            if self.device.itemData(i) == (dev.name, dev.host_api):
+                self.device.setCurrentIndex(i)
+        self._apply_audio()
 
     def _audio_cfg(self, cfg) -> None:
         cfg.audio.backend = self.backend.currentData()
@@ -195,9 +210,12 @@ class SetupWizard(QWizard):
     def _poll(self) -> None:
         st = self.ctrl.audio.status()
         self.meter.set_values(st.level_db, st.peak_db, st.clipping)
-        if st.running and self.currentId() == 3:
-            self.audio_result.setText("Signal detected ✓" if st.signal_present else
-                                      f"No signal yet ({st.level_db:.0f} dBFS). Check channels and mixer output.")
+        if st.running and self.currentId() == 3 and st.digital_silence:
+            self.audio_result.setText(tr("The input is digitally silent: allow desktop apps to use the microphone in "
+                                      "Windows privacy settings (the UCA222 input counts as a microphone)."))
+        elif st.running and self.currentId() == 3:
+            self.audio_result.setText(tr("Signal detected ✓") if st.signal_present else
+                                      tr("No signal yet ({0:.0f} dBFS). Check channels and mixer output.").format(st.level_db))
         elif st.error and self.currentId() == 3:
             self.audio_result.setText(st.error)
 

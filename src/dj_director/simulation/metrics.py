@@ -48,6 +48,7 @@ class EditorialMetrics:
     beat_synced_cuts: int
     beat_alignment_median_ms: Optional[float]
     cuts_near_section_change: int    # cuts within 2 s after a ground-truth section boundary
+    cuts_on_phrase_grid: int = 0     # cuts within 60 ms of a ground-truth 4-bar line
     share_by_camera: dict[str, float] = field(default_factory=dict)
 
     def as_dict(self) -> dict:
@@ -57,7 +58,8 @@ class EditorialMetrics:
 def compute_metrics(name: str, shots: Sequence[ShotRecord], master: Optional[str],
                     min_durations: dict[str, float], cooldowns: dict[str, float],
                     beat_times: Optional[np.ndarray] = None,
-                    section_starts: Sequence[float] = ()) -> EditorialMetrics:
+                    section_starts: Sequence[float] = (),
+                    phrase_times: Optional[np.ndarray] = None) -> EditorialMetrics:
     shots = [s for s in shots if s.duration > 0]
     if not shots:
         return EditorialMetrics(name, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, None, 0)
@@ -84,7 +86,7 @@ def compute_metrics(name: str, shots: Sequence[ShotRecord], master: Optional[str
     share: dict[str, float] = {}
     for s in shots:
         share[s.camera] = share.get(s.camera, 0.0) + s.duration / total
-    synced = [s for s in shots[1:] if s.timing in ("beat", "downbeat")]
+    synced = [s for s in shots[1:] if s.timing in ("beat", "downbeat", "phrase")]
     align = None
     if beat_times is not None and len(beat_times) and synced:
         errs = [float(np.min(np.abs(beat_times - s.target_t))) * 1000 for s in synced]
@@ -93,6 +95,9 @@ def compute_metrics(name: str, shots: Sequence[ShotRecord], master: Optional[str
     for s in shots[1:]:
         if any(0 <= s.start - b <= 2.0 for b in section_starts):
             near += 1
+    on_grid = 0
+    if phrase_times is not None and len(phrase_times):
+        on_grid = sum(1 for s in shots[1:] if float(np.min(np.abs(phrase_times - (s.target_t or s.start)))) < 0.06)
     mean = statistics.fmean(durs)
     return EditorialMetrics(
         name=name, duration_s=round(total, 1), cuts=cuts,
@@ -104,7 +109,7 @@ def compute_metrics(name: str, shots: Sequence[ShotRecord], master: Optional[str
         abab_patterns=abab, min_duration_violations=min_viol, cooldown_violations=cool_viol,
         max_consecutive_inserts=best_run, beat_synced_cuts=len(synced),
         beat_alignment_median_ms=None if align is None else round(align, 1),
-        cuts_near_section_change=near,
+        cuts_near_section_change=near, cuts_on_phrase_grid=on_grid,
         share_by_camera={k: round(v, 3) for k, v in share.items()})
 
 

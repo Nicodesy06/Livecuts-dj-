@@ -7,26 +7,31 @@ comandando OBS Studio tramite obs-websocket 5.x. Funziona interamente in locale.
 > Principio guida: un bravo regista sa anche quando **non** cambiare camera.
 > `HOLD` è un'azione editoriale normale, e ogni decisione ha un motivo verificabile.
 
-Stato: **v0.1 (Music-Aware Director)**. Leggi [docs/REPORT_v0.1.md](docs/REPORT_v0.1.md) per sapere cosa
+Stato: **v0.1.1 (Music-Aware Director)**. Leggi [docs/REPORT_v0.1.md](docs/REPORT_v0.1.md) per sapere cosa
 è stato verificato e cosa no, in particolare i test che richiedono Windows, OBS e hardware audio reali.
 
 ---
 
 ## Cosa fa (v0.1)
 
-- App desktop (PySide6, tema scuro) con dashboard, wizard di primo avvio, impostazioni avanzate opzionali.
+- App desktop (PySide6, tema scuro) **in italiano** (o inglese, automatico dalla lingua di Windows) con
+  dashboard, wizard di primo avvio, impostazioni avanzate opzionali.
 - Connessione a OBS (obs-websocket 5.x, incluso in OBS ≥ 28): legge le scene, segue Program/Preview e
   Studio Mode, rileva rinomina o eliminazione di scene e cambi di scene collection, si riconnette da solo.
 - Associazione scene → ruoli editoriali: `MASTER`, `DETAIL`, `SIDE`, `WIDE`, `OVERHEAD`, `CUSTOM`
   (numero di camere arbitrario; testato fino a 5).
 - Ingresso audio da interfaccia o mixer USB (PortAudio, preferendo WASAPI su Windows), WASAPI loopback
-  opzionale (PyAudioWPatch) e file WAV/FLAC per i test.
+  delle uscite (PyAudioWPatch, incluso nella build Windows) e file WAV/FLAC per i test.
+- **Rilevamento automatico della sorgente**: ascolta ogni ingresso e ogni uscita e suggerisce quella che
+  porta il mix (vedi la sezione Behringer UCA222).
 - Analisi musicale causale: livello, bande di frequenza, spectral flux, densità degli onset, novelty,
   BPM con confidenza, fase del beat, downbeat (euristico, sperimentale) e stati musicali probabilistici
   con eventi (`sparse_start`, `transition`, `reentry`).
 - Director Engine deterministico e testabile, con tre decisioni separate (opportunità, destinazione,
   timing), vincoli hard, isteresi e tagli sincronizzati al beat solo quando la confidenza è sufficiente.
+- Tagli non urgenti sui **confini di frase** (4/8 battute) dopo un drop rilevato.
 - Preset Minimal / **Natural** (default) / Dynamic: tre insiemi di parametri dello stesso motore.
+- **Calibrazione della sincronizzazione**: due camere si alternano sul beat mentre regoli l'offset dal vivo.
 - Modalità **Shadow**: calcola e registra tutte le decisioni senza mai comandare OBS.
 - **Simulazione** offline deterministica, con timeline, confronto con switcher a timer e casuale ed
   export JSON/CSV.
@@ -60,6 +65,27 @@ Nella stessa cartella c'è anche `dj-director-cli.exe` con gli strumenti da riga
 3. **Studio Mode**: se attivo, DJ Director cambia comunque la scena **Program** (cioè ciò che viene
    registrato o trasmesso) e non tocca mai la Preview. È una scelta voluta: ciò che il regista decide va in onda.
 
+## Behringer UCA222 (e interfacce simili)
+
+Collega l'uscita **REC** (o booth/master) del mixer agli **ingressi RCA** della UCA222, e la UCA222 al PC
+via USB. Windows mostra due dispositivi:
+
+| Dispositivo Windows | Che cos'è | Come usarlo in DJ Director |
+|---|---|---|
+| **Microfono (USB Audio CODEC)** | l'ingresso di linea RCA, non un microfono vero | *Audio input* → è la sorgente consigliata (contrassegnata con ★) |
+| **Altoparlanti (USB Audio CODEC)** | l'uscita RCA/cuffie | *WASAPI loopback* → solo se il software DJ suona **dal PC attraverso la UCA222** |
+
+- Nella pagina **Audio** (o nel wizard) premi **Rileva sorgente audio** mentre la musica suona: il
+  programma ascolta tutti gli ingressi e le uscite e seleziona quella con il mix.
+- Canali: lascia **1 + 2** (stereo mixato in mono).
+- Se il livello è fermo a zero esatto, Windows sta bloccando il "microfono" alle app desktop:
+  *Impostazioni › Privacy e sicurezza › Microfono › Consenti alle app desktop di accedere al microfono*.
+  DJ Director lo rileva e mostra l'avviso.
+- La UCA222 non ha un controllo di guadagno in ingresso: se il segnale è basso, alza il livello di
+  registrazione in *Impostazioni audio di Windows › Microfono (USB Audio CODEC) › Livelli*, oppure l'uscita
+  REC del mixer. Evita il clipping (il meter diventa rosso).
+- OBS può usare lo stesso ingresso nello stesso momento (modalità condivisa): non ci sono conflitti.
+
 ## Primo utilizzo (wizard)
 
 1. **OBS**: host, porta, password, poi *Test connection*.
@@ -72,6 +98,13 @@ Nella stessa cartella c'è anche `dj-director-cli.exe` con gli strumenti da riga
 
 Dalla Dashboard: **Start Auto Director** (va LIVE), *Start Shadow*, **Pause/Resume**, **Stop**,
 **Force Master**. Lo stato è sempre visibile: `OFF / ARMED / LIVE / SHADOW / PAUSED / ERROR`.
+
+## Calibrazione della sincronizzazione
+
+In *Regia › Calibrazione della sincronizzazione*: scegli due camere, avvia, fai suonare un brano con una
+cassa evidente e guarda l'uscita Program di OBS. Le camere si alternano ogni 8 beat; sposta il cursore
+finché il taglio cade esattamente sulla cassa (taglio in ritardo → aumenta l'offset). Alla fermata il
+valore viene salvato.
 
 ## Override manuale
 

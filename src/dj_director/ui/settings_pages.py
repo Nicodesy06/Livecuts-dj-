@@ -7,12 +7,15 @@ import dataclasses
 import os
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox,
+from PySide6.QtWidgets import (QSlider, QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox,
                                QFileDialog, QFormLayout, QFrame, QGridLayout, QGroupBox, QHBoxLayout,
                                QHeaderView, QLineEdit, QMessageBox, QPushButton, QRadioButton,
                                QScrollArea, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
+from dj_director.ui.i18n import tr, tr_decision, tr_reason, tr_state
 from dj_director.audio.backends import list_input_devices, list_loopback_devices, loopback_available
+from dj_director.audio.probe import recommend
+from dj_director.ui.source_detect import SourceDetectBox
 from dj_director.config.presets import PRESET_DESCRIPTIONS, PRESETS
 from dj_director.config.schema import CameraConfig, CameraRole, DirectorParams, ROLE_DURATIONS
 from dj_director.core.controller import AppController, AppSnapshot
@@ -46,14 +49,14 @@ class CamerasPage(QWidget):
     def __init__(self, ctrl: AppController) -> None:
         super().__init__()
         self.ctrl = ctrl
-        page, v = page_scaffold("Cameras", "Map OBS scenes to editorial roles. The master is the narrative "
+        page, v = page_scaffold(tr("Cameras"), tr("Map OBS scenes to editorial roles. The master is the narrative "
                                 "anchor: it gets the longest shots and the director returns to it naturally. "
-                                "Durations left at 0 use the role defaults (scaled by the preset).")
+                                "Durations left at 0 use the role defaults (scaled by the preset)."))
         QVBoxLayout(self).addWidget(page)
         self.layout().setContentsMargins(0, 0, 0, 0)
         bar = QHBoxLayout()
-        self.btn_refresh = QPushButton("Reload scenes from OBS")
-        self.btn_save = QPushButton("Save camera map")
+        self.btn_refresh = QPushButton(tr("Reload scenes from OBS"))
+        self.btn_save = QPushButton(tr("Save camera map"))
         self.btn_save.setObjectName("Primary")
         bar.addWidget(self.btn_refresh)
         bar.addStretch()
@@ -62,7 +65,7 @@ class CamerasPage(QWidget):
         bar.addWidget(self.btn_save)
         v.addLayout(bar)
         self.table = QTableWidget(0, len(self.COLS))
-        self.table.setHorizontalHeaderLabels(self.COLS)
+        self.table.setHorizontalHeaderLabels([tr(c) for c in self.COLS])
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionMode(QAbstractItemView.NoSelection)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
@@ -75,8 +78,8 @@ class CamerasPage(QWidget):
         for col in range(4, 9):
             self.table.setColumnWidth(col, 100)
         v.addWidget(self.table)
-        v.addWidget(label("Role defaults (Natural): MASTER 8–90 s (mean 36), DETAIL 5–15 s, SIDE/WIDE 7–25 s, "
-                          "OVERHEAD 5–18 s. Cooldown = minimum time before an insert is reused.", "Faint", wrap=True))
+        v.addWidget(label(tr("Role defaults (Natural): MASTER 8–90 s (mean 36), DETAIL 5–15 s, SIDE/WIDE 7–25 s, "
+                          "OVERHEAD 5–18 s. Cooldown = minimum time before an insert is reused."), "Faint", wrap=True))
         v.addStretch()
         self.btn_refresh.clicked.connect(self.reload)
         self.btn_save.clicked.connect(self.save)
@@ -114,12 +117,12 @@ class CamerasPage(QWidget):
                 self.table.setCellWidget(r, col, self._dspin(getattr(c, attr) if c else 0.0, 0, 1800, 1))
             self.table.setCellWidget(r, 8, self._dspin(c.cooldown if c else -1.0, -1, 600, 1))
             present = name in obs_scenes
-            st = QTableWidgetItem("in OBS" if present else ("missing in OBS" if obs_scenes else "OBS offline"))
+            st = QTableWidgetItem(tr("in OBS") if present else (tr("missing in OBS") if obs_scenes else tr("OBS offline")))
             st.setForeground(Qt.green if present else Qt.yellow)
             st.setFlags(Qt.ItemIsEnabled)
             self.table.setItem(r, 9, st)
-        self.status.setText(f"{len(obs_scenes)} scenes in OBS" if obs_scenes else
-                            "OBS not connected: showing saved cameras only")
+        self.status.setText(tr("{0} scenes in OBS").format(len(obs_scenes)) if obs_scenes else
+                            tr("OBS not connected: showing saved cameras only"))
 
     @staticmethod
     def _guess_role(name: str) -> CameraRole:
@@ -150,7 +153,7 @@ class CamerasPage(QWidget):
         s.setSingleStep(step)
         s.setDecimals(1)
         s.setValue(val)
-        s.setSpecialValueText("default")
+        s.setSpecialValueText(tr("default"))
         return s
 
     def save(self) -> None:
@@ -170,12 +173,12 @@ class CamerasPage(QWidget):
         if cams and not any(c.is_master for c in cams):
             m = next((c for c in cams if c.role == CameraRole.MASTER), None)
             if m is None:
-                QMessageBox.warning(self, "Master camera", "Please choose a master camera (the narrative anchor).")
+                QMessageBox.warning(self, tr("Master camera"), tr("Please choose a master camera (the narrative anchor)."))
                 return
             m.is_master = True
         cfg.cameras = cams
         self.ctrl.apply_config(cfg)
-        self.status.setText(f"Saved {len(cams)} cameras")
+        self.status.setText(tr("Saved {0} cameras").format(len(cams)))
 
     def refresh(self, s: AppSnapshot) -> None:
         pass
@@ -186,43 +189,49 @@ class AudioPage(QWidget):
     def __init__(self, ctrl: AppController) -> None:
         super().__init__()
         self.ctrl = ctrl
-        page, v = page_scaffold("Audio", "Feed the director the master output of your mixer (audio "
+        page, v = page_scaffold(tr("Audio"), tr("Feed the director the master output of your mixer (audio "
                                 "interface / USB mixer input) — not a room microphone. Capture is read-only "
-                                "and never alters the signal OBS records.")
+                                "and never alters the signal OBS records."))
         QVBoxLayout(self).addWidget(page)
         self.layout().setContentsMargins(0, 0, 0, 0)
 
-        src = QGroupBox("Source")
+        src = QGroupBox(tr("Source"))
         f = QFormLayout(src)
         self.backend = QComboBox()
-        self.backend.addItem("Audio input (interface / mixer)", "input")
-        self.backend.addItem("WASAPI loopback (what Windows plays)" +
-                             ("" if loopback_available() else " — unavailable"), "loopback")
-        self.backend.addItem("Audio file (testing)", "file")
-        f.addRow("Type", self.backend)
+        self.backend.addItem(tr("Audio input (interface / mixer)"), "input")
+        self.backend.addItem(tr("WASAPI loopback (what Windows plays)") +
+                             ("" if loopback_available() else tr(" — unavailable")), "loopback")
+        self.backend.addItem(tr("Audio file (testing)"), "file")
+        f.addRow(tr("Type"), self.backend)
         drow = QHBoxLayout()
         self.device = QComboBox()
         self.device.setMinimumWidth(380)
-        self.btn_rescan = QPushButton("Rescan")
+        self.btn_rescan = QPushButton(tr("Rescan"))
         drow.addWidget(self.device, 1)
         drow.addWidget(self.btn_rescan)
-        f.addRow("Device", drow)
+        f.addRow(tr("Device"), drow)
         self.channels = QComboBox()
         for label_, ch in (("1 + 2 (stereo → mono)", [0, 1]), ("1 only", [0]), ("2 only", [1]),
                            ("3 + 4", [2, 3]), ("5 + 6", [4, 5]), ("7 + 8", [6, 7])):
             self.channels.addItem(label_, ch)
-        f.addRow("Channels", self.channels)
+        f.addRow(tr("Channels"), self.channels)
         frow = QHBoxLayout()
         self.file = QLineEdit()
-        self.btn_browse = QPushButton("Browse…")
+        self.btn_browse = QPushButton(tr("Browse…"))
         frow.addWidget(self.file, 1)
         frow.addWidget(self.btn_browse)
-        f.addRow("File", frow)
-        self.loop = QCheckBox("Loop file")
+        f.addRow(tr("File"), frow)
+        self.loop = QCheckBox(tr("Loop file"))
         f.addRow("", self.loop)
+        self.hint = label("", "Faint", wrap=True)
+        f.addRow("", self.hint)
         v.addWidget(src)
 
-        ana = QGroupBox("Analysis (advanced)")
+        self.detect = SourceDetectBox()
+        self.detect.chosen.connect(self._use_detected)
+        v.addWidget(self.detect)
+
+        ana = QGroupBox(tr("Analysis (advanced)"))
         g = QFormLayout(ana)
         self.silence = QDoubleSpinBox(); self.silence.setRange(-90, -20); self.silence.setSuffix(" dBFS")
         self.sens = QDoubleSpinBox(); self.sens.setRange(0.25, 3.0); self.sens.setSingleStep(0.05)
@@ -230,17 +239,17 @@ class AudioPage(QWidget):
         self.max_bpm = QDoubleSpinBox(); self.max_bpm.setRange(90, 260)
         self.prior = QDoubleSpinBox(); self.prior.setRange(60, 200)
         self.bpb = QSpinBox(); self.bpb.setRange(2, 12)
-        g.addRow("Silence threshold", self.silence)
-        g.addRow("Musical sensitivity", self.sens)
-        g.addRow("BPM range min", self.min_bpm)
-        g.addRow("BPM range max", self.max_bpm)
-        g.addRow("Typical tempo (prior)", self.prior)
-        g.addRow("Beats per bar (heuristic)", self.bpb)
-        g.addRow("", label("Set the typical tempo near your genre (e.g. 95 for hip-hop, 174 for drum & bass) "
-                           "to reduce half/double-time errors.", "Faint", wrap=True))
+        g.addRow(tr("Silence threshold"), self.silence)
+        g.addRow(tr("Musical sensitivity"), self.sens)
+        g.addRow(tr("BPM range min"), self.min_bpm)
+        g.addRow(tr("BPM range max"), self.max_bpm)
+        g.addRow(tr("Typical tempo (prior)"), self.prior)
+        g.addRow(tr("Beats per bar (heuristic)"), self.bpb)
+        g.addRow("", label(tr("Set the typical tempo near your genre (e.g. 95 for hip-hop, 174 for drum & bass) "
+                           "to reduce half/double-time errors."), "Faint", wrap=True))
         v.addWidget(ana)
 
-        mon = Card("Live input")
+        mon = Card(tr("Live input"))
         self.meter = LevelMeter(16)
         mon.lay.addWidget(self.meter)
         self.mon_text = label("", "Muted", wrap=True)
@@ -249,7 +258,7 @@ class AudioPage(QWidget):
 
         brow = QHBoxLayout()
         brow.addStretch()
-        self.btn_apply = QPushButton("Apply audio settings")
+        self.btn_apply = QPushButton(tr("Apply audio settings"))
         self.btn_apply.setObjectName("Primary")
         brow.addWidget(self.btn_apply)
         v.addLayout(brow)
@@ -257,6 +266,7 @@ class AudioPage(QWidget):
 
         self.backend.currentIndexChanged.connect(self._backend_changed)
         self.btn_rescan.clicked.connect(self._fill_devices)
+        self.device.currentIndexChanged.connect(lambda _: self._update_hint())
         self.btn_browse.clicked.connect(self._browse)
         self.btn_apply.clicked.connect(self.apply)
         self.reload()
@@ -285,11 +295,33 @@ class AudioPage(QWidget):
         for d in devs:
             self.device.addItem(d.label, (d.name, d.host_api))
         if not devs:
-            self.device.addItem("(no devices found)", None)
+            self.device.addItem(tr("(no devices found)"), None)
+        selected = False
         for i in range(self.device.count()):
             data = self.device.itemData(i)
             if data and data[0] == cfg.device_name and (not cfg.host_api or data[1] == cfg.host_api):
                 self.device.setCurrentIndex(i)
+                selected = True
+        if not selected and devs:
+            # nothing configured yet: preselect the most plausible line input (e.g. UCA222)
+            best = recommend(devs)
+            for i in range(self.device.count()):
+                if self.device.itemData(i) == (best.name, best.host_api):
+                    self.device.setCurrentIndex(i)
+        self._update_hint()
+
+    def _update_hint(self) -> None:
+        from dj_director.audio.devices import classify
+        data = self.device.currentData()
+        self.hint.setText(tr(classify(data[0]).hint) if data else "")
+
+    def _use_detected(self, dev) -> None:
+        self.backend.setCurrentIndex(max(0, self.backend.findData("loopback" if dev.kind == "loopback" else "input")))
+        self._fill_devices()
+        for i in range(self.device.count()):
+            if self.device.itemData(i) == (dev.name, dev.host_api):
+                self.device.setCurrentIndex(i)
+        self.apply()
 
     def _backend_changed(self) -> None:
         b = self.backend.currentData()
@@ -301,7 +333,7 @@ class AudioPage(QWidget):
         self._fill_devices()
 
     def _browse(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Audio file", "", "Audio (*.wav *.flac *.ogg *.aiff *.aif)")
+        path, _ = QFileDialog.getOpenFileName(self, tr("Audio file"), "", "Audio (*.wav *.flac *.ogg *.aiff *.aif)")
         if path:
             self.file.setText(path)
 
@@ -319,7 +351,7 @@ class AudioPage(QWidget):
         an.min_bpm, an.max_bpm, an.prior_bpm = self.min_bpm.value(), self.max_bpm.value(), self.prior.value()
         an.beats_per_bar = self.bpb.value()
         if an.min_bpm * 1.5 > an.max_bpm:
-            QMessageBox.warning(self, "BPM range", "The BPM range must span at least a factor of 1.5.")
+            QMessageBox.warning(self, tr("BPM range"), tr("The BPM range must span at least a factor of 1.5."))
             return
         self.ctrl.apply_config(cfg, restart_audio=True)
 
@@ -327,14 +359,22 @@ class AudioPage(QWidget):
         a = s.audio
         self.meter.set_values(a.level_db, a.peak_db, a.clipping)
         if a.running:
-            txt = (f"{a.device_name} · {a.sample_rate} Hz · {a.channels} ch · level {a.level_db:.1f} dBFS"
-                   f" · peak {a.peak_db:.1f} dBFS · {'CLIPPING · ' if a.clipping else ''}"
-                   f"signal {'present' if a.signal_present else 'absent'} · dropouts {a.overruns}"
-                   f" · stream errors {a.stream_errors} · input latency {a.capture_latency_ms:.0f} ms")
+            txt = tr("{0} · {1} Hz · {2} ch · level {3:.1f} dBFS · peak {4:.1f} dBFS · {5}signal {6} · "
+                     "dropouts {7} · stream errors {8} · input latency {9:.0f} ms").format(
+                a.device_name, a.sample_rate, a.channels, a.level_db, a.peak_db,
+                "CLIPPING · " if a.clipping else "", tr("present") if a.signal_present else tr("absent"),
+                a.overruns, a.stream_errors, a.capture_latency_ms)
             if s.music:
-                txt += f" · analysis latency {s.music.analysis_latency_ms:.0f} ms"
+                txt += tr(" · analysis latency {0:.0f} ms").format(s.music.analysis_latency_ms)
         else:
-            txt = a.error or "Not running"
+            txt = a.error or tr("Not running")
+        if a.digital_silence:
+            txt = tr("⚠ The input delivers exact digital zeros. On Windows check Settings › Privacy & security › "
+                     "Microphone › 'Let desktop apps access your microphone', and that the device is not muted. "
+                     "(USB interfaces like the UCA222 appear to Windows as a microphone.)") + "  " + txt
+        elif a.running and not a.signal_present:
+            txt = tr("No signal: check the mixer output → interface input cable and the channel selection. "
+                     "If the level is very low, raise the recording level in Windows Sound settings.") + "  " + txt
         self.mon_text.setText(txt)
 
 
@@ -343,27 +383,27 @@ class ObsPage(QWidget):
     def __init__(self, ctrl: AppController) -> None:
         super().__init__()
         self.ctrl = ctrl
-        page, v = page_scaffold("OBS connection", "Enable the server in OBS: Tools › WebSocket Server Settings "
+        page, v = page_scaffold(tr("OBS connection"), tr("Enable the server in OBS: Tools › WebSocket Server Settings "
                                 "(OBS 28 or newer includes obs-websocket 5). DJ Director only reads the scene "
                                 "list and changes the Program scene; it never creates, deletes or edits scenes, "
-                                "sources, filters, audio, profiles, recording or streaming.")
+                                "sources, filters, audio, profiles, recording or streaming."))
         QVBoxLayout(self).addWidget(page)
         self.layout().setContentsMargins(0, 0, 0, 0)
-        box = QGroupBox("WebSocket server")
+        box = QGroupBox(tr("WebSocket server"))
         f = QFormLayout(box)
         self.host = QLineEdit()
         self.port = QSpinBox(); self.port.setRange(1, 65535)
         self.password = QLineEdit(); self.password.setEchoMode(QLineEdit.Password)
-        self.password.setPlaceholderText("stored encrypted (Windows DPAPI)")
-        self.auto = QCheckBox("Connect automatically and reconnect if OBS restarts")
-        f.addRow("Host", self.host)
-        f.addRow("Port", self.port)
-        f.addRow("Password", self.password)
+        self.password.setPlaceholderText(tr("stored encrypted (Windows DPAPI)"))
+        self.auto = QCheckBox(tr("Connect automatically and reconnect if OBS restarts"))
+        f.addRow(tr("Host"), self.host)
+        f.addRow(tr("Port"), self.port)
+        f.addRow(tr("Password"), self.password)
         f.addRow("", self.auto)
         v.addWidget(box)
         row = QHBoxLayout()
-        self.btn_test = QPushButton("Test connection")
-        self.btn_save = QPushButton("Save && connect")
+        self.btn_test = QPushButton(tr("Test connection"))
+        self.btn_save = QPushButton(tr("Save && connect"))
         self.btn_save.setObjectName("Primary")
         row.addWidget(self.btn_test)
         row.addStretch()
@@ -371,10 +411,10 @@ class ObsPage(QWidget):
         v.addLayout(row)
         self.result = label("", "Muted", wrap=True)
         v.addWidget(self.result)
-        info = Card("Studio Mode")
-        info.lay.addWidget(label("When Studio Mode is enabled, DJ Director still switches the PROGRAM scene "
+        info = Card(tr("Studio Mode"))
+        info.lay.addWidget(label(tr("When Studio Mode is enabled, DJ Director still switches the PROGRAM scene "
                                  "(what is recorded/streamed). The Preview scene is never changed. A scene change "
-                                 "you make yourself in OBS is detected as a manual override and respected.",
+                                 "you make yourself in OBS is detected as a manual override and respected."),
                                  "Muted", wrap=True))
         v.addWidget(info)
         self.status = label("", "Muted", wrap=True)
@@ -394,7 +434,7 @@ class ObsPage(QWidget):
         self.auto.setChecked(o.auto_connect)
 
     def test(self) -> None:
-        self.result.setText("Testing…")
+        self.result.setText(tr("Testing…"))
         self.btn_test.setEnabled(False)
         from dj_director.obs.controller import ObsController
         self._worker.run(ObsController.test_connection, self.host.text().strip(), self.port.value(),
@@ -403,13 +443,13 @@ class ObsPage(QWidget):
     def _tested(self, res, exc) -> None:
         self.btn_test.setEnabled(True)
         if exc:
-            self.result.setText(f"Failed: {exc}")
+            self.result.setText(tr("Failed: {0}").format(exc))
             return
         ok, msg, scenes = res
         color = T.OK if ok else T.LIVE
         self.result.setStyleSheet(f"color: {color};")
-        self.result.setText(("Connected: " if ok else "Failed: ") + msg +
-                            (f" — {len(scenes)} scenes: " + ", ".join(scenes[:12]) if ok else ""))
+        self.result.setText((tr("Connected: {0}") if ok else tr("Failed: {0}")).format(msg) +
+                            (tr(" — {0} scenes: ").format(len(scenes)) + ", ".join(scenes[:12]) if ok else ""))
 
     def save(self) -> None:
         cfg = copy.deepcopy(self.ctrl.config)
@@ -418,14 +458,16 @@ class ObsPage(QWidget):
         cfg.obs.auto_connect = self.auto.isChecked()
         self.ctrl.set_password(self.password.text())
         self.ctrl.apply_config(cfg, reconnect_obs=True)
-        self.result.setText("Saved. Connecting…")
+        self.result.setText(tr("Saved. Connecting…"))
 
     def refresh(self, s: AppSnapshot) -> None:
         o = s.obs
-        self.status.setText(f"State: {o.state}" + (f" · OBS {o.obs_version} · websocket {o.ws_version}"
-                                                   f" · Studio Mode {'on' if o.studio_mode else 'off'}"
-                                                   f" · Program: {o.program_scene}" if o.connected else
-                                                   (f" · {o.error}" if o.error else "")))
+        if o.connected:
+            extra = tr(" · OBS {0} · websocket {1} · Studio Mode {2} · Program: {3}").format(
+                o.obs_version, o.ws_version, tr("on") if o.studio_mode else tr("off"), o.program_scene)
+        else:
+            extra = f" · {o.error}" if o.error else ""
+        self.status.setText(tr("State: {0}").format(tr(o.state)) + extra)
 
 
 # =========================================================================== director
@@ -444,15 +486,16 @@ PARAM_LABELS = {
     "max_sync_wait": ("Max wait for beat sync (s)", 0.0, 8.0, 0.1),
     "hysteresis": ("Hysteresis (resistance to change)", 0.0, 2.0, 0.05),
     "variety_jitter": ("Variety randomness", 0.0, 1.0, 0.05),
+    "max_phrase_wait": ("Max wait for a phrase boundary (s)", 0.0, 30.0, 0.5),
 }
 
 
-class DirectorPage(QWidget):
+class DirectorPage(QWidget):  # noqa: D101
     def __init__(self, ctrl: AppController) -> None:
         super().__init__()
         self.ctrl = ctrl
-        page, v = page_scaffold("Director", "Choose a style. Presets are parameter sets of the same engine; "
-                                "Natural is recommended. Advanced settings are optional.")
+        page, v = page_scaffold(tr("Director"), tr("Choose a style. Presets are parameter sets of the same engine; "
+                                "Natural is recommended. Advanced settings are optional."))
         QVBoxLayout(self).addWidget(page)
         self.layout().setContentsMargins(0, 0, 0, 0)
         prow = QHBoxLayout()
@@ -460,42 +503,78 @@ class DirectorPage(QWidget):
         self.preset_cards = {}
         for i, name in enumerate(("minimal", "natural", "dynamic")):
             card = Card()
-            rb = QRadioButton(name.capitalize() + ("  (recommended)" if name == "natural" else ""))
+            rb = QRadioButton(tr(name.capitalize()) + (tr("  (recommended)") if name == "natural" else ""))
             f = rb.font(); f.setPointSizeF(12); f.setBold(True); rb.setFont(f)
             card.lay.addWidget(rb)
-            card.lay.addWidget(label(PRESET_DESCRIPTIONS[name], "Muted", wrap=True))
+            card.lay.addWidget(label(tr(PRESET_DESCRIPTIONS[name]), "Muted", wrap=True))
             p = PRESETS[name]
-            card.lay.addWidget(label(f"Master ×{p.master_duration_scale:g} · inserts ×{p.insert_duration_scale:g}"
-                                     f" · ≤{p.max_cuts_per_minute:g} cuts/min", "Faint", wrap=True))
+            card.lay.addWidget(label(tr("Master ×{0:g} · inserts ×{1:g} · ≤{2:g} cuts/min").format(
+                p.master_duration_scale, p.insert_duration_scale, p.max_cuts_per_minute), "Faint", wrap=True))
             self.preset_group.addButton(rb, i)
             self.preset_cards[name] = rb
             prow.addWidget(card)
         v.addLayout(prow)
 
-        beh = QGroupBox("Behaviour")
+        beh = QGroupBox(tr("Behaviour"))
         f = QFormLayout(beh)
         self.override = QComboBox()
-        self.override.addItem("Respect for a while, then resume", "timed")
-        self.override.addItem("Respect until I press Resume", "until_resume")
-        self.override.addItem("Adopt the new shot and continue", "adopt")
+        self.override.addItem(tr("Respect for a while, then resume"), "timed")
+        self.override.addItem(tr("Respect until I press Resume"), "until_resume")
+        self.override.addItem(tr("Adopt the new shot and continue"), "adopt")
         self.override_s = QDoubleSpinBox(); self.override_s.setRange(1, 3600); self.override_s.setSuffix(" s")
         self.nosig = QComboBox()
-        self.nosig.addItem("Return to master", "master")
-        self.nosig.addItem("Hold current shot", "hold")
+        self.nosig.addItem(tr("Return to master"), "master")
+        self.nosig.addItem(tr("Hold current shot"), "hold")
         self.offset = QDoubleSpinBox(); self.offset.setRange(-500, 1000); self.offset.setSuffix(" ms")
-        self.seed = QSpinBox(); self.seed.setRange(0, 2_000_000_000); self.seed.setSpecialValueText("random")
-        self.shadow = QCheckBox("Shadow mode by default (log decisions, never command OBS)")
-        self.logd = QCheckBox("Write decision log (JSONL) for every session")
-        f.addRow("Manual change in OBS", self.override)
-        f.addRow("Manual override duration", self.override_s)
-        f.addRow("When the audio signal is lost", self.nosig)
-        f.addRow("Sync offset (send cut earlier by)", self.offset)
-        f.addRow("Random seed (fixed = reproducible)", self.seed)
+        self.seed = QSpinBox(); self.seed.setRange(0, 2_000_000_000); self.seed.setSpecialValueText(tr("random"))
+        self.shadow = QCheckBox(tr("Shadow mode by default (log decisions, never command OBS)"))
+        self.logd = QCheckBox(tr("Write decision log (JSONL) for every session"))
+        f.addRow(tr("Manual change in OBS"), self.override)
+        f.addRow(tr("Manual override duration"), self.override_s)
+        f.addRow(tr("When the audio signal is lost"), self.nosig)
+        f.addRow(tr("Sync offset (send cut earlier by)"), self.offset)
+        f.addRow(tr("Random seed (fixed = reproducible)"), self.seed)
+        self.lang = QComboBox()
+        self.lang.addItem(tr("Automatic"), "auto")
+        self.lang.addItem("Italiano", "it")
+        self.lang.addItem("English", "en")
         f.addRow("", self.shadow)
         f.addRow("", self.logd)
+        f.addRow(tr("Interface language (restart required)"), self.lang)
         v.addWidget(beh)
 
-        self.adv = QGroupBox("Advanced (overrides the preset)")
+        cal = QGroupBox(tr("Sync calibration"))
+        cg = QGridLayout(cal)
+        cg.addWidget(label(tr("Play a track with a clear kick and watch the OBS program output (or record a short "
+                           "test): the two cameras alternate exactly on the beat grid. Move the slider until each "
+                           "cut lands on the kick. Later cut → increase the offset. The value is saved when you "
+                           "stop."), "Muted", wrap=True), 0, 0, 1, 4)
+        self.cal_a, self.cal_b = QComboBox(), QComboBox()
+        self.cal_every = QComboBox()
+        for n in (4, 8, 16):
+            self.cal_every.addItem(tr("every {0} beats").format(n), n)
+        self.cal_every.setCurrentIndex(1)
+        cg.addWidget(label(tr("Camera A"), "Muted"), 1, 0); cg.addWidget(self.cal_a, 1, 1)
+        cg.addWidget(label(tr("Camera B"), "Muted"), 1, 2); cg.addWidget(self.cal_b, 1, 3)
+        cg.addWidget(label(tr("Cut"), "Muted"), 2, 0); cg.addWidget(self.cal_every, 2, 1)
+        self.cal_slider = QSlider(Qt.Horizontal)
+        self.cal_slider.setRange(-200, 400)
+        self.cal_value = label("", "Big")
+        cg.addWidget(label(tr("Offset"), "Muted"), 3, 0)
+        cg.addWidget(self.cal_slider, 3, 1, 1, 2)
+        cg.addWidget(self.cal_value, 3, 3)
+        self.btn_cal = QPushButton(tr("Start calibration"))
+        self.btn_cal_stop = QPushButton(tr("Stop calibration"))
+        cg.addWidget(self.btn_cal, 4, 1)
+        cg.addWidget(self.btn_cal_stop, 4, 2)
+        self.cal_msg = label("", "Faint", wrap=True)
+        cg.addWidget(self.cal_msg, 5, 0, 1, 4)
+        v.addWidget(cal)
+        self.cal_slider.valueChanged.connect(self._offset_moved)
+        self.btn_cal.clicked.connect(self._start_cal)
+        self.btn_cal_stop.clicked.connect(self.ctrl.stop_director)
+
+        self.adv = QGroupBox(tr("Advanced (overrides the preset)"))
         self.adv.setCheckable(True)
         g = QGridLayout(self.adv)
         self.param_widgets = {}
@@ -504,15 +583,17 @@ class DirectorPage(QWidget):
             w.setRange(lo, hi)
             w.setSingleStep(step)
             self.param_widgets[k] = w
-            g.addWidget(label(txt, "Muted"), i // 2, (i % 2) * 2)
+            g.addWidget(label(tr(txt), "Muted"), i // 2, (i % 2) * 2)
             g.addWidget(w, i // 2, (i % 2) * 2 + 1)
-        self.prefer_db = QCheckBox("Prefer downbeats when confident")
+        self.prefer_db = QCheckBox(tr("Prefer downbeats when confident"))
         g.addWidget(self.prefer_db, len(PARAM_LABELS) // 2 + 1, 0, 1, 2)
+        self.phrase = QCheckBox(tr("Cut on 4/8-bar phrase boundaries after a drop"))
+        g.addWidget(self.phrase, len(PARAM_LABELS) // 2 + 1, 2, 1, 2)
         v.addWidget(self.adv)
 
         row = QHBoxLayout()
-        self.btn_reset = QPushButton("Reset advanced to preset")
-        self.btn_save = QPushButton("Save director settings")
+        self.btn_reset = QPushButton(tr("Reset advanced to preset"))
+        self.btn_save = QPushButton(tr("Save director settings"))
         self.btn_save.setObjectName("Primary")
         row.addWidget(self.btn_reset)
         row.addStretch()
@@ -535,6 +616,7 @@ class DirectorPage(QWidget):
         for k, w in self.param_widgets.items():
             w.setValue(getattr(params, k))
         self.prefer_db.setChecked(params.prefer_downbeat)
+        self.phrase.setChecked(params.phrase_sync)
         if not keep_overrides:
             self.adv.setChecked(False)
 
@@ -548,8 +630,31 @@ class DirectorPage(QWidget):
         self.seed.setValue(d.seed)
         self.shadow.setChecked(self.ctrl.config.shadow_mode)
         self.logd.setChecked(self.ctrl.config.log_decisions)
+        self.lang.setCurrentIndex(max(0, self.lang.findData(self.ctrl.config.ui_language)))
         self.adv.setChecked(bool(d.overrides))
         self._show_params(keep_overrides=True)
+        names = [c.scene_name for c in self.ctrl.config.cameras if c.enabled]
+        for i, combo in enumerate((self.cal_a, self.cal_b)):
+            combo.clear()
+            combo.addItems(names)
+            if len(names) > i:
+                combo.setCurrentIndex(i)
+        self.cal_slider.blockSignals(True)
+        self.cal_slider.setValue(int(d.latency_offset_ms))
+        self.cal_slider.blockSignals(False)
+        self.cal_value.setText(f"{d.latency_offset_ms:.0f} ms")
+
+    def _offset_moved(self, v: int) -> None:
+        self.cal_value.setText(f"{v} ms")
+        self.offset.setValue(v)
+        self.ctrl.set_latency_offset(v)
+
+    def _start_cal(self) -> None:
+        a, b = self.cal_a.currentText(), self.cal_b.currentText()
+        if not a or not b or a == b:
+            QMessageBox.warning(self, tr("Calibration"), tr("Choose two different cameras."))
+            return
+        self.ctrl.start_calibration(a, b, self.cal_every.currentData())
 
     def save(self) -> None:
         cfg = copy.deepcopy(self.ctrl.config)
@@ -562,6 +667,7 @@ class DirectorPage(QWidget):
         d.seed = self.seed.value()
         cfg.shadow_mode = self.shadow.isChecked()
         cfg.log_decisions = self.logd.isChecked()
+        cfg.ui_language = self.lang.currentData()
         d.overrides = {}
         if self.adv.isChecked():
             base = PRESETS[d.preset]
@@ -571,7 +677,17 @@ class DirectorPage(QWidget):
                     d.overrides[k] = val
             if self.prefer_db.isChecked() != base.prefer_downbeat:
                 d.overrides["prefer_downbeat"] = self.prefer_db.isChecked()
+            if self.phrase.isChecked() != base.phrase_sync:
+                d.overrides["phrase_sync"] = self.phrase.isChecked()
         self.ctrl.apply_config(cfg)
 
     def refresh(self, s: AppSnapshot) -> None:
-        pass
+        calibrating = s.director.value == "CALIBRATING"
+        self.btn_cal.setEnabled(not calibrating and s.obs.connected)
+        self.btn_cal_stop.setEnabled(calibrating)
+        if calibrating:
+            self.cal_msg.setText(s.director_message)
+        elif not s.obs.connected:
+            self.cal_msg.setText(tr("Calibration needs a connection to OBS."))
+        else:
+            self.cal_msg.setText("")

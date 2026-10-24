@@ -70,6 +70,7 @@ _RANGES: dict[str, tuple[float, float]] = {
     "max_sync_wait": (0.0, 8.0),
     "hysteresis": (0.0, 2.0),
     "variety_jitter": (0.0, 1.0),
+    "max_phrase_wait": (0.0, 30.0),
 }
 
 
@@ -147,6 +148,8 @@ class DirectorParams:
     max_sync_wait: float = 2.5
     hysteresis: float = 0.25
     variety_jitter: float = 0.15
+    phrase_sync: bool = True          # prefer predicted phrase boundaries for non-urgent cuts
+    max_phrase_wait: float = 9.0      # s a non-urgent cut may wait for the next phrase boundary
 
 
 @dataclass
@@ -171,6 +174,7 @@ class AppConfig:
     director: DirectorConfig = field(default_factory=DirectorConfig)
     cameras: list[CameraConfig] = field(default_factory=list)
     log_decisions: bool = True
+    ui_language: str = "auto"         # "auto" (system) | "it" | "en"
 
     def master_camera(self) -> Optional[CameraConfig]:
         for c in self.cameras:
@@ -292,6 +296,9 @@ def _post_validate(inst: Any, issues: list[str], path: str) -> None:
             issues.append(f"{path}.no_signal_policy: invalid, reset")
             inst.no_signal_policy = "master"
     if isinstance(inst, AppConfig):
+        if inst.ui_language not in ("auto", "it", "en"):
+            issues.append("ui_language: invalid, reset")
+            inst.ui_language = "auto"
         masters = [c for c in inst.cameras if c.is_master]
         if len(masters) > 1:
             issues.append("cameras: more than one master; keeping the first")

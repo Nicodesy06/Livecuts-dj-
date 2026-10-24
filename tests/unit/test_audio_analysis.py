@@ -67,6 +67,16 @@ def test_half_double_time_resolved_with_genre_prior():
     assert abs(p.snapshot().beat.bpm / 90.0 - 1) < 0.01
 
 
+@pytest.mark.parametrize("bpm", [90.0, 172.0])
+def test_no_octave_jumps_over_a_full_set_with_default_prior(bpm):
+    """Off-beat bass at 90 BPM and kick-less build-ups at 172 BPM used to flip the
+    tempo to 180 / 86; tempo inertia keeps the established pulse."""
+    tr = generate(bpm=bpm)
+    _, _, states = run_pipeline(tr.audio, tr.sr)
+    tempos = [b.bpm for t, s, b in states if t > 10 and b.bpm > 0]
+    assert all(abs(x / bpm - 1) < 0.02 for x in tempos), sorted(set(round(x) for x in tempos))
+
+
 def test_tempo_does_not_oscillate(synth_124):
     p, _, states = run_pipeline(synth_124.audio, synth_124.sr)
     confident = [b.bpm for t, s, b in states if b.confidence > 0.5 and t > 10]

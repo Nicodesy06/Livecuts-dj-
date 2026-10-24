@@ -33,6 +33,8 @@ class AudioStatusEvent:
     buffer_fill: float         # 0..1
     capture_latency_ms: float  # backend-reported input latency
     error: str = ""
+    digital_silence: bool = False   # samples exactly 0 (e.g. Windows mic privacy block)
+    device_hint: str = ""           # what kind of device this looks like (see audio.devices)
 
 
 # --------------------------------------------------------------------------- music
@@ -157,6 +159,7 @@ class TimingMode(str, Enum):
     IMMEDIATE = "immediate"
     BEAT = "beat"
     DOWNBEAT = "downbeat"
+    PHRASE = "phrase"          # predicted 4-bar boundary, anchored to a detected re-entry (heuristic)
 
 
 _corr = itertools.count(1)

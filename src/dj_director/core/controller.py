@@ -18,6 +18,7 @@ LIVE     deciding and commanding OBS.
 SHADOW   deciding and logging only; OBS is never commanded.
 PAUSED   started but holding; no decisions, no commands.
 ERROR    unrecoverable configuration problem (e.g. no cameras); see message.
+CALIBRATING  sync-offset calibration: two cameras alternate on the beat grid.
 """
 
 from __future__ import annotations
@@ -40,6 +41,7 @@ from dj_director.core.events import (AudioStatusEvent, DirectorAction, DirectorD
                                      ExternalSceneChange, MusicSnapshot, ObsStatusEvent,
                                      SceneSwitchConfirmed, SceneSwitchFailed, SceneSwitchRequested)
 from dj_director.diagnostics.logging_setup import DecisionLog, register_secret
+from dj_director.director.calibration import CalibrationRunner
 from dj_director.director.cameras import CameraRegistry
 from dj_director.director.engine import DirectorEngine, EngineSettings
 from dj_director.music.analyzer import AnalysisWorker
@@ -58,6 +60,7 @@ class DirectorStatus(str, Enum):
     SHADOW = "SHADOW"
     PAUSED = "PAUSED"
     ERROR = "ERROR"
+    CALIBRATING = "CALIBRATING"
 
 
 @dataclass(frozen=True)
@@ -114,6 +117,7 @@ class AppController:
         self._last_hold_logged = 0.0
         self._inflight: dict[int, tuple[str, Optional[str]]] = {}   # cid -> (scene, previous)
         self._decision_ms = 0.0
+        self.calibration: Optional[CalibrationRunner] = None
         self.registry = CameraRegistry.from_configs(self.config.cameras)
         self.engine = self._build_engine()
         self.obs.on_external_change = lambda e: self._post("external", e)
@@ -202,6 +206,14 @@ class AppController:
     def force_master(self) -> None:
         self._post("force_master")
 
+    def start_calibration(self, cam_a: str, cam_b: str, every_beats: int = 8) -> None:
+        self._post("calibrate", CalibrationRunner(cam_a, cam_b, every_beats))
+
+    def set_latency_offset(self, ms: float) -> None:
+        """Live offset change (calibration slider); persisted, engine rebuilt."""
+        self.config.director.latency_offset_ms = float(ms)
+        self.engine.s.latency_offset = ms / 1000.0
+
     def _post(self, *cmd) -> None:
         try:
             self._commands.put_nowait(cmd)
@@ -247,7 +259,14 @@ class AppController:
                 self._set_status(DirectorStatus.ARMED, "starting")
             elif kind == "stop":
                 self.engine.pending = None
+                if self.calibration is not None:
+                    self.calibration = None
+                    self.save_config()            # keep the calibrated offset
                 self._set_status(DirectorStatus.OFF, "")
+            elif kind == "calibrate":
+                self.engine.pending = None
+                self.calibration = cmd[1]
+                self._set_status(DirectorStatus.CALIBRATING, self.calibration.message)
             elif kind == "pause":
                 if self.status != DirectorStatus.OFF:
                     self.engine.pending = None
@@ -315,6 +334,9 @@ class AppController:
 
     def _tick(self) -> None:
         st = self.status
+        if st == DirectorStatus.CALIBRATING:
+            self._tick_calibration()
+            return
         if st in (DirectorStatus.OFF, DirectorStatus.PAUSED, DirectorStatus.ERROR):
             self.analysis.drain_events()       # don't let stale events trigger cuts on resume
             return
@@ -350,6 +372,21 @@ class AppController:
         self._record(d)
         if d.action == DirectorAction.SWITCH:
             self._execute(d, prev)
+
+    def _tick_calibration(self) -> None:
+        cal = self.calibration
+        if cal is None:
+            self._set_status(DirectorStatus.OFF, "")
+            return
+        self.analysis.drain_events()
+        if not self.obs.can_switch():
+            self._set_status(DirectorStatus.CALIBRATING, "waiting for OBS connection")
+            return
+        offset = self.config.director.latency_offset_ms / 1000.0
+        scene = cal.tick(time.monotonic(), self.analysis.latest(), offset)
+        if scene is not None:
+            self.obs.switch_program(scene, 0)
+        self._set_status(DirectorStatus.CALIBRATING, cal.message)
 
     def _execute(self, d: DirectorDecisionEvent, previous: Optional[str]) -> None:
         with self._lock:

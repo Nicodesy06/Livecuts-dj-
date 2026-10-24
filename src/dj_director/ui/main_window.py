@@ -12,6 +12,7 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QApplication, QHBoxLayout, QListWidget, QMainWindow, QMessageBox,
                                QPushButton, QStackedWidget, QVBoxLayout, QWidget)
 
+from dj_director.ui.i18n import set_language, tr, tr_decision, tr_reason, tr_state
 from dj_director import APP_NAME, __version__
 from dj_director.core.controller import AppController, DirectorStatus
 from dj_director.ui import theme as T
@@ -44,12 +45,12 @@ class MainWindow(QMainWindow):
         side.setFixedWidth(220)
         sv = QVBoxLayout(side)
         sv.setContentsMargins(0, 0, 0, 12)
-        sv.addWidget(label("DJ Director", "AppTitle"))
-        sv.addWidget(label(f"AI multicam director · v{__version__}", "AppSubtitle"))
+        sv.addWidget(label(tr("DJ Director"), "AppTitle"))
+        sv.addWidget(label(tr("AI multicam director · v{0}").format(__version__), "AppSubtitle"))
         self.nav = QListWidget()
         self.nav.setObjectName("Nav")
         sv.addWidget(self.nav, 1)
-        wiz = QPushButton("Setup wizard")
+        wiz = QPushButton(tr("Setup wizard"))
         wiz.clicked.connect(self.open_wizard)
         sv.addWidget(wiz)
         sv.setContentsMargins(10, 0, 10, 12)
@@ -67,7 +68,7 @@ class MainWindow(QMainWindow):
             ("Decisions & log", LogPage(ctrl)),
         ]
         for name, page in self.pages:
-            self.nav.addItem(name)
+            self.nav.addItem(tr(name))
             self.stack.addWidget(page)
         self.nav.currentRowChanged.connect(self._page_changed)
         self.nav.setCurrentRow(0)
@@ -100,8 +101,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, e) -> None:
         if self.ctrl.status in (DirectorStatus.LIVE, DirectorStatus.ARMED):
-            r = QMessageBox.question(self, "Quit", "Auto Director is running. Stop it and quit?\n"
-                                     "(OBS recording/streaming is NOT affected.)")
+            r = QMessageBox.question(self, tr("Quit"), tr("Auto Director is running. Stop it and quit?\n"
+                                     "(OBS recording/streaming is NOT affected.)"))
             if r != QMessageBox.Yes:
                 e.ignore()
                 return
@@ -114,8 +115,7 @@ def _install_excepthook() -> None:
     def hook(exc_type, exc, tb):
         log.critical("unhandled exception:\n%s", "".join(traceback.format_exception(exc_type, exc, tb)))
         try:
-            QMessageBox.critical(None, APP_NAME, f"Unexpected error: {exc}\n\nDetails were written to the log. "
-                                 "OBS is not affected.")
+            QMessageBox.critical(None, APP_NAME, tr("Unexpected error: {0}\n\nDetails were written to the log. OBS is not affected.").format(exc))
         except Exception:
             pass
     sys.excepthook = hook
@@ -127,14 +127,15 @@ def run(argv: list[str] | None = None, show_wizard: bool = True) -> int:
     app.setStyleSheet(T.STYLESHEET)
     _install_excepthook()
     ctrl = AppController()
+    set_language(ctrl.config.ui_language)
     for issue in ctrl.config_manager.issues:
         log.warning("config: %s", issue)
     ctrl.start_services()
     win = MainWindow(ctrl)
     win.show()
     if ctrl.config_manager.recovered_from_corruption:
-        QMessageBox.warning(win, APP_NAME, "The configuration file was damaged and has been reset.\n"
-                            "A backup was kept next to it.")
+        QMessageBox.warning(win, APP_NAME, tr("The configuration file was damaged and has been reset.\n"
+                            "A backup was kept next to it."))
     if show_wizard and not ctrl.config.first_run_done:
         QTimer.singleShot(300, win.open_wizard)
     return app.exec()

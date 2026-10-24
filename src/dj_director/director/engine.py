@@ -64,6 +64,7 @@ MUSICAL_FIT: dict[CameraRole, dict[MusicState, float]] = {
 # Base strength of each musical event as a reason to cut (times its confidence).
 EVENT_WEIGHT = {"reentry": 0.95, "transition": 0.5, "sparse_start": 0.4}
 EVENT_TTL = {"reentry": 2.5, "transition": 4.0, "sparse_start": 3.0}
+PHRASE_BEATS = 16      # 4 bars of 4/4: the smallest phrase unit dance music is built from
 
 
 @dataclass
@@ -116,6 +117,8 @@ class DirectorEngine:
         self.consecutive_inserts = 0
         self._triggers: list[MusicEvent] = []
         self._failed_until: dict[str, float] = {}
+        self.phrase_anchor = 0.0           # beat time of the last confident re-entry (0 = none)
+        self._anchor_period = 0.0
         self.last_decision: Optional[DirectorDecisionEvent] = None
 
     # ------------------------------------------------------------------ external notifications
@@ -176,6 +179,8 @@ class DirectorEngine:
         for e in events:
             if e.kind in EVENT_WEIGHT:
                 self._triggers.append(e)
+            if e.kind == "reentry" and e.confidence >= self.p.musical_cut_confidence:
+                self._set_phrase_anchor(e.t, snap)
         self._triggers = [e for e in self._triggers if now - e.t <= EVENT_TTL[e.kind]]
         state = snap.state if snap else MusicState.NO_SIGNAL
         d = self._tick(now, snap, state)
@@ -284,7 +289,7 @@ class DirectorEngine:
         scores = tuple((c.name, round(s, 3)) for c, s, _ in ranked)
 
         # ---------------------------------------------------------------- C. timing
-        timing, target_t = self._timing(now, snap)
+        timing, target_t = self._timing(now, snap, urgent=(trig_ev is not None or overdue))
         cid = next_correlation_id()
         reason = "; ".join(reasons)
         if timing == TimingMode.IMMEDIATE or target_t - self.s.latency_offset <= now:
@@ -292,8 +297,9 @@ class DirectorEngine:
                                     timing=timing, target_t=target_t or now, cid=cid, scores=scores)
         self.pending = PendingSwitch(best.name, target_t - self.s.latency_offset, now, timing, reason,
                                      opportunity, confidence, cid, trig_ev is not None, scores)
+        wait = {TimingMode.PHRASE: "phrase boundary (4/8 bars after the last drop)"}.get(timing, timing.value)
         return self._decision(now, DirectorAction.SCHEDULE, best.name,
-                              f"{reason}; waiting for next {timing.value}", confidence, state,
+                              f"{reason}; waiting for next {wait}", confidence, state,
                               opportunity=opportunity, timing=timing, target_t=target_t, cid=cid,
                               scores=scores)
 
@@ -306,7 +312,7 @@ class DirectorEngine:
             cancel = f"target {p.target} became unavailable"
         elif state == MusicState.NO_SIGNAL and not self.reg.is_anchor(target):
             cancel = "audio signal lost while waiting"
-        elif now - p.created > self.p.max_sync_wait + 1.0:
+        elif now - p.created > max(self.p.max_sync_wait, self.p.max_phrase_wait) + 1.0:
             cancel = "beat sync window expired"
         elif now < self.override_until:
             cancel = "manual override"
@@ -409,13 +415,51 @@ class DirectorEngine:
         v -= 0.5 * max(0.0, dur_p - 0.5)       # the longer we overstay, the less staying is worth
         return v
 
-    def _timing(self, now: float, snap: Optional[MusicSnapshot]) -> tuple[TimingMode, float]:
+    def _set_phrase_anchor(self, t: float, snap: Optional[MusicSnapshot]) -> None:
+        """Remember when a confident re-entry (drop) happened.
+
+        The raw event time is kept and snapped to the beat grid only when used:
+        right after a beatless breakdown the beat phase is still re-locking, so
+        snapping immediately could be half a beat off.
+        """
+        if snap is None or snap.beat.period <= 0:
+            return
+        self.phrase_anchor = t
+        self._anchor_period = snap.beat.period
+
+    def next_phrase_boundary(self, after: float, snap: Optional[MusicSnapshot],
+                             beats: int = PHRASE_BEATS) -> float:
+        """Predicted 4-bar boundary after ``after`` (0 if no valid anchor).
+
+        Heuristic: dance music is arranged in blocks of 4/8/16 bars and drops start
+        a block, so boundaries repeat every 16 beats from the last detected drop.
+        Invalidated when the tempo changes (another track / pitch move).
+        """
+        if not self.phrase_anchor or snap is None or snap.beat.period <= 0 or snap.beat.next_beat_t <= 0:
+            return 0.0
+        P = snap.beat.period
+        if abs(P / self._anchor_period - 1) > 0.02:
+            self.phrase_anchor = 0.0
+            return 0.0
+        nb = snap.beat.next_beat_t
+        anchor = nb + round((self.phrase_anchor - nb) / P) * P     # on the current beat grid
+        L = beats * P
+        return anchor + math.ceil((after - anchor) / L - 1e-9) * L
+
+    def _timing(self, now: float, snap: Optional[MusicSnapshot],
+                urgent: bool = False) -> tuple[TimingMode, float]:
         if snap is None:
             return TimingMode.IMMEDIATE, now
         b = snap.beat
         if b.period <= 0 or b.confidence < self.p.sync_confidence:
             return TimingMode.IMMEDIATE, now
         earliest = now + self.s.latency_offset + 0.01
+        if self.p.phrase_sync and not urgent:
+            # an 8-bar boundary if one is close enough (more likely a section change), else 4-bar
+            for beats in (2 * PHRASE_BEATS, PHRASE_BEATS):
+                t = self.next_phrase_boundary(earliest, snap, beats)
+                if 0 < t <= now + self.p.max_phrase_wait:
+                    return TimingMode.PHRASE, t
         limit = now + self.p.max_sync_wait
         if self.p.prefer_downbeat and b.downbeat_confidence >= self.p.downbeat_confidence:
             t = b.next_downbeat_after(earliest, self.s.beats_per_bar)

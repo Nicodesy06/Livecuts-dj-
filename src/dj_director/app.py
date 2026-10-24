@@ -22,11 +22,12 @@ def _cmd_simulate(a: argparse.Namespace) -> int:
     from dj_director.simulation.replay import default_cameras, format_report, load_audio, run_replay
     from dj_director.simulation.synth import generate
 
-    beat_times, sections = None, []
+    beat_times, sections, phrases = None, [], None
     if a.synthetic or not a.file:
         tr = generate(bpm=a.bpm)
         audio, sr, beat_times = tr.audio, tr.sr, tr.beat_times
         sections = [s for _, s, _ in tr.sections[1:]]
+        phrases = tr.downbeat_times[::4]
         src = f"synthetic set @ {a.bpm} BPM"
     else:
         audio, sr = load_audio(a.file)
@@ -38,7 +39,7 @@ def _cmd_simulate(a: argparse.Namespace) -> int:
         director.preset = a.preset
     analysis = cfg.analysis if cfg else None
     r = run_replay(audio, sr, cams, director, analysis, seed=a.seed, beat_times=beat_times,
-                   section_starts=sections, log_holds=a.holds)
+                   section_starts=sections, log_holds=a.holds, phrase_times=phrases)
     print(f"Source: {src}  ({r.duration:.0f}s, preset {director.preset}, {len(cams)} cameras)\n")
     print(format_report(r))
     print("\nTimeline:")
@@ -140,6 +141,18 @@ def _cmd_selftest(a: argparse.Namespace) -> int:
         assert s.get("t") == "x"
         return "secrets " + ("DPAPI" if s.protected else "unprotected (non-Windows)")
 
+    def loopback():
+        import sys
+        if sys.platform != "win32":
+            return "skipped (Windows only)"
+        import pyaudiowpatch  # noqa: F401  - must be bundled in Windows builds
+        from dj_director.audio.backends import list_loopback_devices
+        try:
+            n = len(list_loopback_devices())
+        except Exception as e:      # no audio endpoints on headless CI machines
+            return f"PyAudioWPatch ok (enumeration: {e})"
+        return f"PyAudioWPatch ok, {n} loopback endpoints"
+
     def obs_client():
         from dj_director.obs.controller import ObsController
         ok, msg, _ = ObsController.test_connection("127.0.0.1", 1, "", timeout=0.5)
@@ -158,6 +171,7 @@ def _cmd_selftest(a: argparse.Namespace) -> int:
         return f"Qt {__import__('PySide6').__version__}"
 
     ok = all([check("config + secrets", config), check("audio libraries", audio_io),
+              check("WASAPI loopback", loopback),
               check("analysis + director", dsp), check("OBS client", obs_client), check("Qt GUI", qt)])
     text = "\n".join(report) + ("\nSELFTEST PASSED" if ok else "\nSELFTEST FAILED")
     print(text)

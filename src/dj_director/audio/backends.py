@@ -41,7 +41,8 @@ class DeviceInfo:
 
     @property
     def label(self) -> str:
-        return f"{self.name}  [{self.host_api}, {self.max_input_channels} ch]"
+        from dj_director.audio.devices import friendly_label
+        return friendly_label(self.name, self.host_api, self.max_input_channels)
 
 
 class TimeAnchor:
@@ -90,6 +91,15 @@ class AudioBackend:
         self.input_latency = 0.0
         self.running = False
         self.error = ""
+        self.zero_frames = 0        # consecutive frames that were exactly 0.0
+        self.frames_pushed = 0
+
+    @property
+    def digital_silence(self) -> bool:
+        """Samples exactly zero for > 2 s: typically Windows microphone privacy
+        blocking desktop apps, or a muted/disabled endpoint (real silence from an
+        analogue input always carries some noise)."""
+        return self.sample_rate > 0 and self.zero_frames > 2 * self.sample_rate
 
     # -- helpers for callbacks
     def _push(self, block: np.ndarray, callback_t: float) -> None:
@@ -103,9 +113,15 @@ class AudioBackend:
             p = float(np.max(np.abs(mono)))
             if p > self.peak:
                 self.peak = p
+            self.zero_frames = self.zero_frames + len(mono) if p == 0.0 else 0
+            self.frames_pushed += len(mono)
         self.ring.write(mono)
         if self.anchor is not None:
             self.anchor.update(callback_t, self.ring.write_total)
+
+    def alive(self) -> bool:
+        """False when the underlying stream has died (device unplugged, driver reset)."""
+        return self.running
 
     def read_peak(self) -> float:
         p, self.peak = self.peak, 0.0
@@ -158,8 +174,9 @@ class SoundDeviceBackend(AudioBackend):
 
     def start(self) -> None:
         import sounddevice as sd
-        sr = int(self.requested_sr or self.device.default_sample_rate or 48000)
-        n_ch = min(max(max(self.channels) + 1, 1), self.device.max_input_channels)
+        # Open every channel the device offers (max 8) and pick ours in the callback:
+        # WASAPI shared mode is picky about channel counts that differ from the mix format.
+        n_ch = max(1, min(self.device.max_input_channels, 8))
         self.channels = [c for c in self.channels if c < n_ch] or [0]
 
         def callback(indata, frames, time_info, status):  # PortAudio thread
@@ -167,16 +184,37 @@ class SoundDeviceBackend(AudioBackend):
                 self.status_errors += 1
             self._push(indata, time.monotonic())
 
-        self._stream = sd.InputStream(device=self.device.index, channels=n_ch, samplerate=sr,
-                                      blocksize=self.block_size, dtype="float32",
-                                      latency="low", callback=callback)
+        extra = None
+        if "WASAPI" in self.device.host_api:
+            try:   # let Windows convert if the requested rate differs from the mix format
+                extra = sd.WasapiSettings(auto_convert=True)
+            except TypeError:
+                extra = None
+        rates = [int(self.requested_sr)] if self.requested_sr else []
+        rates += [int(self.device.default_sample_rate or 48000), 48000, 44100]
+        last_err = None
+        for sr in dict.fromkeys(rates):
+            try:
+                self._stream = sd.InputStream(device=self.device.index, channels=n_ch, samplerate=sr,
+                                              blocksize=self.block_size, dtype="float32",
+                                              latency="low", callback=callback, extra_settings=extra)
+                break
+            except Exception as e:      # unsupported rate / format: try the next one
+                last_err = e
+                self._stream = None
+        if self._stream is None:
+            raise RuntimeError(f"cannot open {self.device.name}: {last_err}")
         self.input_latency = float(self._stream.latency or 0.0)
-        self.sample_rate = sr
+        self.sample_rate = int(self._stream.samplerate)
         self.device_name = self.device.name
         self.device_channels = n_ch
-        self.anchor = TimeAnchor(sr, self.input_latency)
+        self.anchor = TimeAnchor(self.sample_rate, self.input_latency)
         self._stream.start()
         self.running = True
+
+    def alive(self) -> bool:
+        s = self._stream
+        return self.running and s is not None and bool(s.active)
 
     def stop(self) -> None:
         self.running = False
@@ -232,6 +270,33 @@ class LoopbackBackend(AudioBackend):
         self.block_size = block_size
         self._pa = None
         self._stream = None
+        self._lock = threading.Lock()
+        self._last_push = 0.0
+        self._filler: Optional[threading.Thread] = None
+        self._stop_evt = threading.Event()
+
+    def _push_locked(self, block: np.ndarray, t: float) -> None:
+        with self._lock:
+            self._push(block, t)
+            self._last_push = t
+
+    def _fill_silence(self) -> None:
+        """WASAPI loopback delivers *no packets* while Windows plays silence. Feed
+        zeros for the missing time so sample indices keep tracking the wall clock
+        (the beat clock depends on it) and the analysis sees real silence."""
+        while not self._stop_evt.wait(0.05):
+            self._fill_once(time.monotonic())
+
+    def _fill_once(self, now: float) -> int:
+        with self._lock:
+            gap = now - self._last_push
+            if not (self._last_push and gap > 0.15 and self.sample_rate):
+                return 0
+            n = min(int(gap * self.sample_rate), self.ring.capacity)
+            self._push(np.zeros(n, dtype=np.float32), now)
+            self._last_push = now
+            self.zero_frames = 0      # loopback silence is real silence, not a privacy block
+            return n
 
     def start(self) -> None:
         import pyaudiowpatch as pyaudio
@@ -243,7 +308,7 @@ class LoopbackBackend(AudioBackend):
             if status:
                 self.status_errors += 1
             block = np.frombuffer(in_data, dtype=np.float32).reshape(-1, n_ch)
-            self._push(block, time.monotonic())
+            self._push_locked(block, time.monotonic())
             return (None, pyaudio.paContinue)
 
         self._stream = self._pa.open(format=pyaudio.paFloat32, channels=n_ch, rate=sr, input=True,
@@ -254,11 +319,30 @@ class LoopbackBackend(AudioBackend):
         self.device_name = self.device.name
         self.device_channels = n_ch
         self.anchor = TimeAnchor(sr, self.input_latency)
+        self._last_push = time.monotonic()
+        self._stop_evt.clear()
         self._stream.start_stream()
+        self._filler = threading.Thread(target=self._fill_silence, name="loopback-filler", daemon=True)
+        self._filler.start()
         self.running = True
+
+    @property
+    def digital_silence(self) -> bool:
+        return False
+
+    def alive(self) -> bool:
+        # the silence filler keeps timestamps fresh, so ask the stream itself
+        s = self._stream
+        try:
+            return self.running and s is not None and s.is_active()
+        except Exception:
+            return False
 
     def stop(self) -> None:
         self.running = False
+        self._stop_evt.set()
+        if self._filler is not None:
+            self._filler.join(timeout=1)
         try:
             if self._stream is not None:
                 self._stream.stop_stream()
@@ -288,6 +372,10 @@ class FileBackend(AudioBackend):
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
         self.finished = False
+
+    @property
+    def digital_silence(self) -> bool:
+        return False              # digital zeros in a file are legitimate silence
 
     def start(self) -> None:
         import soundfile as sf

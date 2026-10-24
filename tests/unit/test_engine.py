@@ -307,3 +307,47 @@ def test_reasons_reflect_actual_logic():
     e = make(3)
     for d in switches(run(e, 900))[1:]:
         assert "min length satisfied" in d.reason
+
+
+# ----------------------------------------------------------------------------- phrase timing
+def _with_drop(engine, t_drop=10.0):
+    engine.tick(0, snap(0))
+    run(engine, t_drop - 0.05, start=0.05)
+    ev = MusicEvent(t_drop, "reentry", 0.9)
+    engine.tick(t_drop, snap(t_drop, MusicState.REENTRY), (ev,))
+
+
+def test_non_urgent_cut_waits_for_phrase_boundary_after_drop():
+    e = make(3)
+    _with_drop(e, 10.0)
+    anchor = round(10.0 / PERIOD) * PERIOD
+    ds = run(e, 400, start=10.05)
+    sched = [d for d in ds if d.action == DirectorAction.SCHEDULE and d.timing == TimingMode.PHRASE]
+    assert sched, "expected at least one phrase-synced cut"
+    for d in sched:
+        n = (d.target_t - anchor) / (16 * PERIOD)
+        assert abs(n - round(n)) < 1e-6 and "phrase boundary" in d.reason
+        assert d.target_t - d.t <= PRESETS["natural"].max_phrase_wait + 1e-6
+
+
+def test_no_phrase_timing_without_a_detected_drop():
+    e = make(3)
+    ds = run(e, 600)
+    assert not [d for d in ds if d.timing == TimingMode.PHRASE]
+
+
+def test_phrase_grid_invalidated_by_tempo_change():
+    e = make(3)
+    _with_drop(e, 10.0)
+    s_new = snap(20.0)
+    faster = BeatInfo(130, 0.9, 60 / 130, 19.9, 20.3, 1, -1, 0.0)
+    s_new = MusicSnapshot(20.0, MusicState.STABLE_GROOVE, 0.8, 0, MusicState.STABLE_GROOVE, FEAT, faster)
+    assert e.next_phrase_boundary(20.0, s_new) == 0.0 and e.phrase_anchor == 0.0
+
+
+def test_phrase_sync_can_be_disabled():
+    import dataclasses
+    e = make(3)
+    e.p = dataclasses.replace(e.p, phrase_sync=False)
+    _with_drop(e, 10.0)
+    assert not [d for d in run(e, 400, start=10.05) if d.timing == TimingMode.PHRASE]

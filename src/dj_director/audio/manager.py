@@ -137,7 +137,7 @@ class AudioInputManager:
                 if not self.configured():
                     continue
                 b = self.backend
-                dead = b is None or not b.running or (
+                dead = b is None or not b.alive() or (
                     b.anchor is not None and b.anchor.last_callback_t > 0
                     and time.monotonic() - b.anchor.last_callback_t > STALL_TIMEOUT)
                 if isinstance(b, FileBackend) and b.finished and not b.error:
@@ -173,10 +173,13 @@ class AudioInputManager:
         if peak >= CLIP_LEVEL:
             self._clip_until = now + 2.0
         level = _db(rms)
+        from dj_director.audio.devices import classify
+        dsil = b.digital_silence
         return AudioStatusEvent(
             t=now, backend=b.name, device_name=b.device_name, sample_rate=b.sample_rate,
             channels=b.device_channels, running=b.running, level_db=level, peak_db=_db(peak),
-            clipping=now < self._clip_until, signal_present=level > self.silence_db,
+            clipping=now < self._clip_until, signal_present=level > self.silence_db and not dsil,
             overruns=ring.overrun_frames, stream_errors=b.status_errors,
             buffer_fill=ring.fill_ratio() * ring.capacity / max(1, b.sample_rate * RING_SECONDS),
-            capture_latency_ms=b.input_latency * 1000.0, error=self._last_error or b.error)
+            capture_latency_ms=b.input_latency * 1000.0, error=self._last_error or b.error,
+            digital_silence=dsil, device_hint=classify(b.device_name).hint)

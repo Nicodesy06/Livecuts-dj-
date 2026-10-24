@@ -61,6 +61,12 @@ CameraScore = EditorialFit + MusicalFit + VisualFit + VarietyBonus + Preference
 - Se la confidenza del beat è ≥ `sync_confidence`, il taglio cade sul prossimo beat, oppure sul prossimo
   downbeat se `prefer_downbeat` è attivo e la confidenza del downbeat è ≥ `downbeat_confidence`, purché
   entro `max_sync_wait`. Il comando parte con `latency_offset` di anticipo.
+- **Confine di frase** (v0.1.1, euristico): per i tagli **non urgenti** (nessun evento musicale, insert
+  non oltre la durata massima), se è stato rilevato un drop con confidenza sufficiente, il taglio aspetta
+  il prossimo confine di **8 battute** (o di 4, se quello di 8 è troppo lontano), entro `max_phrase_wait`
+  (Minimal 12 s, Natural 9 s, Dynamic 5 s). La griglia parte dall'istante del drop, riallineato al beat
+  corrente, e si annulla se il tempo cambia di oltre il 2%. Si basa sul fatto che la musica dance è
+  costruita a blocchi di 4/8/16 battute; si disattiva con `phrase_sync`.
 - Altrimenti il taglio è immediato: nessuna falsa precisione ritmica.
 - Mentre si attende, il cambio viene annullato se cambia il contesto.
 
@@ -75,6 +81,7 @@ CameraScore = EditorialFit + MusicalFit + VisualFit + VarietyBonus + Preference
 | max insert consecutivi | 1 | 2 | 3 |
 | guadagno trigger musicali | 0.6 | 1.0 | 1.3 |
 | isteresi | 0.35 | 0.25 | 0.18 |
+| attesa massima per un confine di frase | 12 s | 9 s | 5 s |
 
 Tutti i parametri si possono modificare in *Director › Advanced*. Le modifiche vengono salvate come override
 del preset scelto.

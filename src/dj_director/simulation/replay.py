@@ -99,6 +99,7 @@ def run_replay(audio: np.ndarray, sr: int, cameras: Sequence[CameraConfig] | Non
                director: DirectorConfig | None = None, analysis: AnalysisConfig | None = None,
                seed: int = 7, beat_times: Optional[np.ndarray] = None,
                section_starts: Sequence[float] = (), baselines: bool = True,
+               phrase_times: Optional[np.ndarray] = None,
                log_holds: bool = False,
                progress: Optional[Callable[[float], bool]] = None) -> SimResult:
     """Run the full chain on ``audio``. ``progress(frac)`` may return False to abort."""
@@ -153,14 +154,17 @@ def run_replay(audio: np.ndarray, sr: int, cameras: Sequence[CameraConfig] | Non
     mins = {c.name: c.min_duration * (engine.p.master_duration_scale if c is reg.anchor()
                                       else engine.p.insert_duration_scale) for c in reg}
     cools = {c.name: c.cooldown for c in reg}
-    metrics = compute_metrics("music-aware", shots, master, mins, cools, beat_times, section_starts)
+    metrics = compute_metrics("music-aware", shots, master, mins, cools, beat_times, section_starts,
+                              phrase_times)
     result = SimResult(shots, decisions, states, music_events, metrics, duration=total)
     if baselines:
         names = [c.name for c in reg]
         result.baselines["timer-12s"] = compute_metrics(
-            "timer-12s", timer_baseline(names, total), master, mins, cools, None, section_starts)
+            "timer-12s", timer_baseline(names, total), master, mins, cools, None, section_starts,
+            phrase_times)
         result.baselines["random"] = compute_metrics(
-            "random", random_baseline(names, total, seed), master, mins, cools, None, section_starts)
+            "random", random_baseline(names, total, seed), master, mins, cools, None, section_starts,
+            phrase_times)
     return result
 
 
@@ -169,7 +173,7 @@ def format_report(r: SimResult) -> str:
     keys = ["cuts_per_minute", "master_share", "mean_shot_s", "median_shot_s", "shortest_shot_s",
             "longest_shot_s", "duration_cv", "abab_patterns", "min_duration_violations",
             "cooldown_violations", "max_consecutive_inserts", "beat_synced_cuts",
-            "beat_alignment_median_ms", "cuts_near_section_change"]
+            "beat_alignment_median_ms", "cuts_near_section_change", "cuts_on_phrase_grid"]
     w = 26
     lines = ["metric".ljust(w) + "".join(m.name.rjust(14) for m in rows)]
     for k in keys:

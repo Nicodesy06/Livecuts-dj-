@@ -132,3 +132,17 @@ def test_force_master(env):
     time.sleep(0.3)
     ctrl.force_master()
     assert wait(lambda: srv.program == "Cam M", 3)
+
+
+def test_calibration_alternates_cameras_on_beat(env):
+    ctrl, srv = env
+    ctrl.start_calibration("Cam M", "Cam D", every_beats=4)
+    assert wait(lambda: ctrl.status == DirectorStatus.CALIBRATING)
+    assert wait(lambda: len(switch_requests(srv)) >= 3, 25)
+    progs = [srv._uuid(n) for n in ("Cam M", "Cam D")]
+    sent = [r[1].get("sceneUuid") for r in switch_requests(srv)]
+    assert set(sent) <= set(progs) and sent[0] != sent[1]
+    ctrl.set_latency_offset(120)
+    ctrl.stop_director()
+    assert wait(lambda: ctrl.status == DirectorStatus.OFF)
+    assert ConfigManager().load().director.latency_offset_ms == 120

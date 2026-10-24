@@ -71,11 +71,20 @@ class BeatTracker:
         self._prof_sum = None                # profile sum over the current beat interval
         self._prof_cnt = 0
         self._prev_beat_prof = None          # mean profile of the previous beat interval
+        # metrical alternation test (double-time correction)
+        self._pending_acc: deque[tuple[float, int]] = deque(maxlen=8)
+        self._beat_acc: deque[tuple[int, float]] = deque(maxlen=16)
+        self.halvings = 0
+        self._last_lags = None
+        self._last_weighted = None
         self.bar_position = -1               # bar position of the *last* emitted beat
         self.downbeat_confidence = 0.0
         self._low_confidence_frames = 0
         self._odf_ref = 0.0                  # typical ODF level while rhythm is confident
         self.rhythm_strength = 0.0           # current ODF level / reference (0..1)
+        self._low_ref = 0.0                  # typical low-band onset level in the groove
+        self._confident_updates = 0          # updates with real rhythm since this tempo was adopted
+        self.low_strength = 0.0              # kick/bass presence now vs groove (0..1)
 
     # ------------------------------------------------------------------ public
     @property
@@ -121,6 +130,8 @@ class BeatTracker:
                     self.bar_position = (self.bar_position + 1) % self.bpb
                 self.next_beat += self.period
                 self._close_beat_interval()
+                self._pending_acc.append((self.last_beat, self.beat_index))
+        self._measure_accents()
         if profile is not None:
             if self._prof_sum is None:
                 self._prof_sum = np.zeros_like(profile)
@@ -172,6 +183,7 @@ class BeatTracker:
         bpms = 60.0 * self.fr / lags
         prior = np.exp(-0.5 * (np.log2(bpms / self.prior_bpm) / 0.9) ** 2)
         weighted = score * prior
+        self._last_lags, self._last_weighted = lags, weighted
         j = int(np.argmax(weighted))
         # parabolic refinement on the raw comb score
         if 0 < j < len(lags) - 1:
@@ -215,10 +227,17 @@ class BeatTracker:
         if self._odf_ref <= 0:
             self._odf_ref = recent
         self.rhythm_strength = float(min(1.0, recent / (self._odf_ref + 1e-9)))
-        est = self.estimate_tempo(odf, self._ordered(self._low))
+        low = self._ordered(self._low)
+        low_recent = float(np.mean(low[-int(2 * self.fr):]))
+        if self._low_ref <= 0:
+            self._low_ref = low_recent
+        self.low_strength = float(min(1.0, low_recent / (self._low_ref + 1e-9)))
+        est = self.estimate_tempo(odf, low)
         if est.bpm > 0 and est.salience > 0.2 and self.rhythm_strength > 0.5:
             rate = 0.05 if recent > self._odf_ref else 0.01
             self._odf_ref += rate * (recent - self._odf_ref)
+            rate = 0.05 if low_recent > self._low_ref else 0.01
+            self._low_ref += rate * (low_recent - self._low_ref)
         if self.period > 0 and self.rhythm_strength < 0.3:
             # no rhythm to follow (e.g. beatless breakdown): coast on the last
             # tempo, never adopt a new one from noise
@@ -246,16 +265,44 @@ class BeatTracker:
                 else:
                     self._candidate, self._candidate_hits = est.bpm, 1
                 octave = abs(r - 2) < 0.06 or abs(r - 0.5) < 0.03
-                need = 8 if octave else 4          # octave jumps need more evidence
-                if self._candidate_hits >= need:
+                if octave and (self.rhythm_strength < 0.75 or self.low_strength < 0.6
+                               or not self._octave_clearly_better(est.bpm)):
+                    # Tempo inertia: half/double readings that are merely comparable
+                    # (e.g. an off-beat bass line entering a 90 BPM groove) do not
+                    # move an established tempo, nor do reduced sections (build-ups with
+                    # claps every other beat). Tracks rarely change tempo by 2x.
+                    self._candidate_hits = 0
+                    self._candidate = 0.0
+                    if self._history:
+                        self._history[-1] = self.bpm   # same pulse, other metrical level
+                # octave jumps need ~6 s of evidence, ~40 s once the tempo is established
+                established = self._confident_updates * self._update_every / self.fr > 30.0
+                need = (160 if established else 24) if octave else 4
+                if self._candidate and self._candidate_hits >= need:
                     self._adopt(self._candidate)
         self._update_phase(odf)
+        if self.rhythm_strength > 0.5:
+            self._confident_updates += 1     # time spent following real rhythm at this tempo
         if self.confidence < 0.1:
             self._low_confidence_frames += self._update_every
         else:
             self._low_confidence_frames = 0
 
+    def _octave_clearly_better(self, bpm: float) -> bool:
+        lags, w = self._last_lags, self._last_weighted
+        if lags is None or self.period <= 0:
+            return True
+        def at(period: float) -> float:
+            k = int(round(period)) - int(lags[0])
+            return float(w[k]) if 0 <= k < len(w) else 0.0
+        cur = at(self.period)
+        new = at(60.0 * self.fr / bpm)
+        # a weak/negative score at the current tempo (sparse section) is not
+        # evidence for the octave: require a genuinely strong new periodicity
+        return new > 0.15 and new > 1.3 * max(cur, 0.0)
+
     def _adopt(self, bpm: float) -> None:
+        self._confident_updates = 0
         self.period = 60.0 * self.fr / bpm
         self._candidate, self._candidate_hits = 0.0, 0
         self._acc[:] = 0
@@ -309,6 +356,58 @@ class BeatTracker:
         while self.next_beat <= self._count:
             # never schedule into the past (no retroactive beats)
             self.next_beat += P
+
+    def _measure_accents(self) -> None:
+        """Low-band onset strength at each beat, measured 3 frames after it."""
+        while self._pending_acc and self._pending_acc[0][0] + 3 <= self._count:
+            frame, idx = self._pending_acc.popleft()
+            back = int(round(self._count - frame))
+            n = min(self._count, self.n_hist)
+            if back >= n - 3:
+                continue
+            low = self._ordered(self._low)
+            c = len(low) - 1 - back
+            self._beat_acc.append((idx, float(np.max(low[max(0, c - 2):c + 3]))))
+            if len(self._beat_acc) == self._beat_acc.maxlen and idx % 8 == 0:
+                self._check_double_time()
+
+    def _check_double_time(self) -> None:
+        """If beats alternate strong/weak in the low band, we are tracking the
+        off-beats too (double time): halve the tempo, keep the strong beats.
+
+        Only applied when the halved tempo stays inside the configured range and
+        is closer to the tempo prior, so drum & bass at 172 BPM (whose kick/snare
+        pattern also alternates) is not halved to 86 with the default prior.
+        """
+        if self.confidence < 0.4 or self.period <= 0:
+            return
+        even = [a for i, a in self._beat_acc if i % 2 == 0]
+        odd = [a for i, a in self._beat_acc if i % 2 == 1]
+        e, o = float(np.median(even)), float(np.median(odd))
+        strong, weak = max(e, o), min(e, o)
+        if weak <= 0 or strong / weak < 1.8:
+            return
+        half = self.bpm / 2
+        if half < self.min_bpm:
+            return
+        if abs(math.log2(half / self.prior_bpm)) >= abs(math.log2(self.bpm / self.prior_bpm)):
+            return
+        strong_parity = 0 if e > o else 1
+        self.period *= 2
+        # next beat = next strong one
+        nb = self.next_beat
+        idx = self.beat_index + 1          # index of the beat at next_beat (old grid)
+        if idx % 2 != strong_parity:
+            nb += self.period / 2
+        self.next_beat = nb
+        self._history.clear()
+        self._candidate, self._candidate_hits = 0.0, 0
+        self._beat_acc.clear()
+        self._acc[:] = 0
+        self._acc_n = 0
+        self.bar_position = -1
+        self.downbeat_confidence = 0.0
+        self.halvings += 1
 
     def _close_beat_interval(self) -> None:
         """A beat just started: score the boundary at the *previous* beat.

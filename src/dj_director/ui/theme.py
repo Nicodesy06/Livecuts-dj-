@@ -28,7 +28,7 @@ def rgba(hex_color: str, alpha: float) -> str:
 CAMERA_COLORS = ["#7c6cff", "#2fd17c", "#45a8ff", "#f5a524", "#ff7ab6", "#3fd6d0", "#c9a2ff", "#ffb86b"]
 
 STATUS_COLORS = {
-    "OFF": FAINT, "ARMED": WARN, "LIVE": LIVE, "SHADOW": INFO, "PAUSED": WARN, "ERROR": LIVE,
+    "OFF": FAINT, "ARMED": WARN, "LIVE": LIVE, "SHADOW": INFO, "PAUSED": WARN, "ERROR": LIVE, "CALIBRATING": ACCENT,
 }
 
 STYLESHEET = f"""

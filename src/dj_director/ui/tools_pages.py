@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QFileDialog, QFormLayo
                                QHBoxLayout, QHeaderView, QLineEdit, QProgressBar, QPushButton,
                                QRadioButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
+from dj_director.ui.i18n import tr, tr_action, tr_decision, tr_reason, tr_state
 from dj_director.config.paths import log_dir
 from dj_director.core.controller import AppController, AppSnapshot
 from dj_director.core.events import DirectorAction
@@ -35,65 +36,65 @@ class SimulationPage(QWidget):
     def __init__(self, ctrl: AppController) -> None:
         super().__init__()
         self.ctrl = ctrl
-        page, v = page_scaffold("Simulation", "Replay a recorded set (or a synthetic one) through the real "
+        page, v = page_scaffold(tr("Simulation"), tr("Replay a recorded set (or a synthetic one) through the real "
                                 "analysis and director, faster than real time, without OBS or cameras. "
-                                "Compare with a fixed-timer switcher and a random switcher.")
+                                "Compare with a fixed-timer switcher and a random switcher."))
         QVBoxLayout(self).addWidget(page)
         self.layout().setContentsMargins(0, 0, 0, 0)
-        box = QGroupBox("Input")
+        box = QGroupBox(tr("Input"))
         f = QFormLayout(box)
         srow = QHBoxLayout()
-        self.r_file = QRadioButton("Audio file")
-        self.r_synth = QRadioButton("Synthetic DJ set")
+        self.r_file = QRadioButton(tr("Audio file"))
+        self.r_synth = QRadioButton(tr("Synthetic DJ set"))
         self.r_synth.setChecked(True)
         srow.addWidget(self.r_file)
         srow.addWidget(self.r_synth)
         srow.addStretch()
-        f.addRow("Source", srow)
+        f.addRow(tr("Source"), srow)
         frow = QHBoxLayout()
         self.path = QLineEdit()
-        b = QPushButton("Browse…")
+        b = QPushButton(tr("Browse…"))
         b.clicked.connect(self._browse)
         frow.addWidget(self.path, 1)
         frow.addWidget(b)
-        f.addRow("File", frow)
+        f.addRow(tr("File"), frow)
         self.bpm = QDoubleSpinBox(); self.bpm.setRange(70, 180); self.bpm.setValue(124)
-        f.addRow("Synthetic tempo", self.bpm)
+        f.addRow(tr("Synthetic tempo"), self.bpm)
         self.preset = QComboBox()
         self.preset.addItems(["natural", "minimal", "dynamic"])
-        f.addRow("Preset", self.preset)
-        f.addRow("", label("Uses your configured cameras (or 3 demo cameras if none are configured).", "Faint"))
+        f.addRow(tr("Preset"), self.preset)
+        f.addRow("", label(tr("Uses your configured cameras (or 3 demo cameras if none are configured)."), "Faint"))
         v.addWidget(box)
         row = QHBoxLayout()
-        self.btn_run = QPushButton("Run simulation")
+        self.btn_run = QPushButton(tr("Run simulation"))
         self.btn_run.setObjectName("Primary")
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         row.addWidget(self.btn_run)
         row.addWidget(self.progress, 1)
-        self.btn_json = QPushButton("Export JSON")
-        self.btn_csv = QPushButton("Export CSV")
+        self.btn_json = QPushButton(tr("Export JSON"))
+        self.btn_csv = QPushButton(tr("Export CSV"))
         self.btn_json.setEnabled(False)
         self.btn_csv.setEnabled(False)
         row.addWidget(self.btn_json)
         row.addWidget(self.btn_csv)
         v.addLayout(row)
-        tl = Card("Shot timeline  (marks: red = re-entry, amber = transition, blue = sparse start)")
+        tl = Card(tr("Shot timeline  (marks: red = re-entry, amber = transition, blue = sparse start)"))
         self.timeline = TimelineWidget()
         self.timeline.setMinimumHeight(130)
         tl.lay.addWidget(self.timeline)
         v.addWidget(tl)
         self.table = QTableWidget(len(METRIC_ROWS), 3)
-        self.table.setHorizontalHeaderLabels(["Music-aware director", "Timer (12 s)", "Random"])
-        self.table.setVerticalHeaderLabels([n for _, n in METRIC_ROWS])
+        self.table.setHorizontalHeaderLabels([tr("Music-aware director"), tr("Timer (12 s)"), tr("Random")])
+        self.table.setVerticalHeaderLabels([tr(n) for _, n in METRIC_ROWS])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.setMinimumHeight(420)
         v.addWidget(self.table)
-        self.note = label("Metrics describe behaviour, not artistic quality: watch the timeline and judge.",
+        self.note = label(tr("Metrics describe behaviour, not artistic quality: watch the timeline and judge."),
                           "Faint", wrap=True)
         v.addWidget(self.note)
         self.shots = QTableWidget(0, 4)
-        self.shots.setHorizontalHeaderLabels(["Start", "Length", "Camera", "Why"])
+        self.shots.setHorizontalHeaderLabels([tr("Start"), tr("Length"), tr("Camera"), tr("Why")])
         self.shots.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         self.shots.setMinimumHeight(260)
         v.addWidget(self.shots)
@@ -106,7 +107,7 @@ class SimulationPage(QWidget):
         self.btn_csv.clicked.connect(lambda: self._export("csv"))
 
     def _browse(self) -> None:
-        p, _ = QFileDialog.getOpenFileName(self, "Recorded set", "", "Audio (*.wav *.flac *.ogg *.aiff *.aif)")
+        p, _ = QFileDialog.getOpenFileName(self, tr("Recorded set"), "", "Audio (*.wav *.flac *.ogg *.aiff *.aif)")
         if p:
             self.path.setText(p)
             self.r_file.setChecked(True)
@@ -140,7 +141,7 @@ class SimulationPage(QWidget):
     def _done(self, r, exc) -> None:
         self.btn_run.setEnabled(True)
         if exc is not None:
-            self.note.setText(f"Simulation failed: {exc}")
+            self.note.setText(tr("Simulation failed: {0}").format(exc))
             return
         self.progress.setValue(100)
         self.result = r
@@ -164,12 +165,12 @@ class SimulationPage(QWidget):
             row = self.shots.rowCount()
             self.shots.insertRow(row)
             for c, txt in enumerate((f"{int(s.start // 60)}:{s.start % 60:04.1f}", f"{s.duration:.1f}s",
-                                     s.camera, f"[{s.timing or '-'}] {s.reason}")):
+                                     s.camera, f"[{s.timing or '-'}] {tr_reason(s.reason)}")):
                 self.shots.setItem(row, c, QTableWidgetItem(txt))
         self.btn_json.setEnabled(True)
         self.btn_csv.setEnabled(True)
-        self.note.setText(f"{r.duration / 60:.1f} min analysed · {len(r.events)} musical events · "
-                          "Metrics describe behaviour, not artistic quality.")
+        self.note.setText(tr("{0:.1f} min analysed · {1} musical events · Metrics describe behaviour, "
+                             "not artistic quality.").format(r.duration / 60, len(r.events)))
 
     def _export(self, kind: str) -> None:
         if not self.result:
@@ -186,21 +187,21 @@ class LogPage(QWidget):
     def __init__(self, ctrl: AppController) -> None:
         super().__init__()
         self.ctrl = ctrl
-        page, v = page_scaffold("Decisions & diagnostics", "Every decision with the reason the engine actually "
-                                "used. The full session log is saved as JSONL in the logs folder.")
+        page, v = page_scaffold(tr("Decisions & diagnostics"), tr("Every decision with the reason the engine actually "
+                                "used. The full session log is saved as JSONL in the logs folder."))
         QVBoxLayout(self).addWidget(page)
         self.layout().setContentsMargins(0, 0, 0, 0)
-        lat = Card("Latency (indicative)")
+        lat = Card(tr("Latency (indicative)"))
         self.lat = label("", "Muted", wrap=True)
         lat.lay.addWidget(self.lat)
-        lat.lay.addWidget(label("Capture = audio driver input latency · Analysis = time from sound to music "
+        lat.lay.addWidget(label(tr("Capture = audio driver input latency · Analysis = time from sound to music "
                                 "state (includes analysis window) · Decision = engine cost per tick · Command = "
                                 "WebSocket round trip to OBS. Video presentation latency of your cameras is not "
                                 "measurable here: tune the sync offset by recording a test and checking cuts "
-                                "against the beat.", "Faint", wrap=True))
+                                "against the beat."), "Faint", wrap=True))
         v.addWidget(lat)
         row = QHBoxLayout()
-        b = QPushButton("Open logs folder")
+        b = QPushButton(tr("Open logs folder"))
         b.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_dir()))))
         row.addWidget(b)
         row.addStretch()
@@ -208,7 +209,7 @@ class LogPage(QWidget):
         row.addWidget(self.path)
         v.addLayout(row)
         self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(["Time", "Action", "Camera", "Music state", "Conf.", "Reason"])
+        self.table.setHorizontalHeaderLabels([tr("Time"), tr("Action"), tr("Camera"), tr("Music state"), tr("Conf."), tr("Reason")])
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
         self.table.verticalHeader().setVisible(False)
         self.table.setMinimumHeight(460)
@@ -217,9 +218,9 @@ class LogPage(QWidget):
 
     def refresh(self, s: AppSnapshot) -> None:
         L = s.latency
-        self.lat.setText(f"Capture {L.capture_ms:.0f} ms · Analysis {L.analysis_ms:.0f} ms · DSP cost "
-                         f"{L.dsp_cost_ms:.1f} ms/iteration · Decision {L.decision_ms:.2f} ms · Command "
-                         f"round trip {L.command_rtt_ms:.1f} ms · Sync offset {L.offset_ms:.0f} ms")
+        self.lat.setText(tr("Capture {0:.0f} ms · Analysis {1:.0f} ms · DSP cost {2:.1f} ms/iteration · Decision "
+                            "{3:.2f} ms · Command round trip {4:.1f} ms · Sync offset {5:.0f} ms").format(
+            L.capture_ms, L.analysis_ms, L.dsp_cost_ms, L.decision_ms, L.command_rtt_ms, L.offset_ms))
         self.path.setText(str(self.ctrl.decision_log.path))
         decs = list(self.ctrl.decisions)
         if len(decs) == self._n and (not decs or self.table.rowCount()):
@@ -228,8 +229,8 @@ class LogPage(QWidget):
         t0 = decs[0].t if decs else 0
         self.table.setRowCount(len(decs))
         for i, d in enumerate(reversed(decs)):
-            vals = (f"{d.t - t0:8.1f}s", d.action.value, d.candidate_camera or d.current_camera or "",
-                    d.music_state.label, f"{d.confidence:.2f}", d.reason)
+            vals = (f"{d.t - t0:8.1f}s", tr_action(d.action.value), d.candidate_camera or d.current_camera or "",
+                    tr_state(d.music_state), f"{d.confidence:.2f}", tr_reason(d.reason))
             for c, txt in enumerate(vals):
                 it = QTableWidgetItem(txt)
                 if d.action == DirectorAction.SWITCH:

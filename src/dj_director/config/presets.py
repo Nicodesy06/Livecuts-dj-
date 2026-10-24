@@ -25,6 +25,7 @@ PRESETS: dict[str, DirectorParams] = {
         musical_cut_confidence=0.65,
         hysteresis=0.35,
         variety_jitter=0.1,
+        max_phrase_wait=12.0,
     ),
     "natural": DirectorParams(),
     "dynamic": DirectorParams(
@@ -39,6 +40,7 @@ PRESETS: dict[str, DirectorParams] = {
         musical_cut_confidence=0.5,
         hysteresis=0.18,
         variety_jitter=0.2,
+        max_phrase_wait=5.0,
     ),
 }
 

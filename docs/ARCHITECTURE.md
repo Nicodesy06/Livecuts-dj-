@@ -27,14 +27,14 @@
 | `core/clock.py` | Clock monotono (live) e `SimClock` (replay deterministico) |
 | `core/controller.py` | Application Controller: cablaggio, thread del director, stati OFF/ARMED/LIVE/SHADOW/PAUSED/ERROR, comandi utente, log delle decisioni |
 | `config/` | Schema con validazione e clamp, preset, salvataggio atomico, recupero da file corrotto, password via DPAPI, percorsi per utente |
-| `audio/` | Ring buffer, backend (PortAudio, WASAPI loopback, file), manager con watchdog e riapertura per nome |
+| `audio/` | Ring buffer, backend (PortAudio, WASAPI loopback con riempimento del silenzio, file), manager con watchdog e riapertura per nome, riconoscimento dei dispositivi (UCA222 & co.), rilevamento automatico della sorgente |
 | `music/` | Feature spettrali, beat tracker causale, stati musicali, pipeline pura e worker live |
-| `director/` | Camera registry (ruoli, disponibilità, ancora), Director Engine |
+| `director/` | Camera registry (ruoli, disponibilità, ancora), Director Engine, calibrazione dell'offset |
 | `obs/` | Protocollo, client WebSocket con allow-list, controller (supervisione, eventi, comandi), finto server per test e demo |
 | `simulation/` | Generatore sintetico con ground truth, replay offline, metriche editoriali, baseline timer e casuale |
 | `visual/` | Interfaccia per l'analisi visiva (v0.2); in v0.1 è un'implementazione nulla |
 | `diagnostics/` | Logging con rotazione, filtro dei segreti, log JSONL delle decisioni |
-| `ui/` | Tema, widget, dashboard, pagine di configurazione, simulazione, log, wizard |
+| `ui/` | Tema, widget, dashboard, pagine di configurazione, simulazione, log, wizard, traduzioni (italiano/inglese) |
 
 ## Gestione del tempo
 
@@ -70,6 +70,7 @@
 | Feature (RMS, bande, flux, onset) | Misure DSP deterministiche |
 | BPM e fase | Algoritmo DSP classico con confidenza esplicita |
 | Downbeat | **Euristica sperimentale** (variazione armonica per posizione nella battuta) |
+| Confini di frase | **Euristica**: griglia di 4/8 battute prevista dall'ultimo drop rilevato |
 | Stati musicali ed eventi | **Regole esplicite** con soglie, isteresi e confidenza; ipotesi, non etichette musicologiche |
 | Director | **Regole + scoring deterministici**; casualità solo da RNG con seed |
 | Modelli neurali | **Nessuno** in v0.1. Nulla viene presentato come "AI" quando è una regola o un timer |
