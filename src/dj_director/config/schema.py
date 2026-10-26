@@ -116,6 +116,7 @@ _RANGES: dict[str, tuple[float, float]] = {
     "detail_hard_cap": HARD_CAP_RANGE[COVER_DETAIL],
     "side_hard_cap": HARD_CAP_RANGE[COVER_SIDE],
     "visual_novelty_threshold": (0.05, 1.0),
+    "mix_shot_cap": (15.0, 25.0),
     "judge_interval": (3.0, 60.0),
     "judge_timeout": (2.0, 60.0),
 }
@@ -231,6 +232,9 @@ class DirectorParams:
     visual_novelty_threshold: float = 0.35
     # --- drop grammar (0.2): keep the reveal shot back during the build-up, open on it at the drop
     drop_reveal: bool = True
+    # --- DJ gestures heard in the audio (0.3): EQ / isolator kills and filters -> mixer camera
+    mix_gestures: bool = True
+    mix_shot_cap: float = 20.0        # cap of a mixer shot held during a gesture (15-25 s)
 
 
 @dataclass
@@ -243,6 +247,7 @@ class DirectorConfig:
     latency_offset_ms: float = 40.0   # command is sent this early w.r.t. the musical target
     seed: int = 0                     # 0 = random per session; fixed => reproducible
     drop_scene: str = ""              # scene opened on the drop ("" = automatic: wide / behind / side)
+    mixer_scene: str = ""             # scene on the mixer for DJ gestures ("" = automatic: detail / overhead)
 
 
 @dataclass

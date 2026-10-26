@@ -23,6 +23,7 @@ from dj_director.config.schema import AnalysisConfig
 from dj_director.core.events import BeatInfo, EMPTY_BEAT, MusicEvent, MusicSnapshot, MusicState
 from dj_director.music.beat import BeatTracker
 from dj_director.music.features import FeatureExtractor
+from dj_director.music.mixing import MixGestureDetector
 from dj_director.music.state import MusicStateEstimator
 
 log = logging.getLogger(__name__)
@@ -38,6 +39,7 @@ class AnalysisPipeline:
         self.beats = BeatTracker(self.fx.frame_rate, cfg.min_bpm, cfg.max_bpm, cfg.prior_bpm,
                                  cfg.beats_per_bar)
         self.state = MusicStateEstimator(self.fx.frame_rate, cfg.silence_db, cfg.sensitivity)
+        self.mix = MixGestureDetector(self.fx.frame_rate, cfg.silence_db)
         self._base_sample = 0          # absolute sample index of feature frame 0 start
         self._expected_next = None     # next expected absolute sample index
         self.gaps = 0
@@ -64,6 +66,9 @@ class AnalysisPipeline:
             for _ in new_beats:
                 self.beat_times.append(self.frame_time(self.beats.last_beat))
             self.state.update(f, t, self.beats.confidence)
+            self.mix.update(t, f.profile, f.rms, self.beats.confidence)
+            if self.mix.events:                 # one event stream for the director
+                self.state.events.extend(self.mix.drain_events())
         self._snapshot = None
 
     def beat_info(self) -> BeatInfo:
@@ -85,7 +90,7 @@ class AnalysisPipeline:
         return MusicSnapshot(t=self.last_t, state=s.state, state_confidence=s.confidence,
                              state_since=s.state_since, previous_state=s.previous,
                              features=s.features, beat=self.beat_info(), events=events,
-                             analysis_latency_ms=latency_ms, warmed_up=warmed)
+                             analysis_latency_ms=latency_ms, warmed_up=warmed, mix_gesture=self.mix.gesture)
 
 
 class AnalysisWorker:

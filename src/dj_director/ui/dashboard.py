@@ -10,6 +10,9 @@ from dj_director.ui.i18n import tr, tr_action, tr_decision, tr_reason, tr_state
 from dj_director.core.controller import AppController, AppSnapshot, DirectorStatus
 from dj_director.core.events import DirectorAction, MusicState
 from dj_director.ui import theme as T
+
+GESTURE_LABEL = {"eq_cut:low": "DJ: lows cut on the mixer", "eq_cut:high": "DJ: highs cut on the mixer",
+                 "filter:low": "DJ: high-pass filter", "filter:high": "DJ: low-pass filter"}
 from dj_director.ui.widgets import Bar, Card, CameraTile, Dot, LevelMeter, StatusPill, label
 
 STATE_COLORS = {
@@ -271,6 +274,8 @@ class DashboardPage(QWidget):
         else:
             self.coverage.setText("")
         vis = []
+        if m is not None and m.mix_gesture:
+            vis.append(tr(GESTURE_LABEL.get(m.mix_gesture, "DJ at work on the mixer")))
         if s.reveal_camera:
             vis.append(tr("drop → {0}").format(s.reveal_camera))
         if s.vision is not None and s.vision.enabled:

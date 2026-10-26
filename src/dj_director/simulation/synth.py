@@ -178,3 +178,61 @@ def generate_mix(bpms=(122.0, 124.0, 124.0, 126.0, 128.0, 128.0), sr: int = 4410
     peak = float(np.max(np.abs(out))) or 1.0
     return SynthTrack((out / peak * 0.7).astype(np.float32), sr, float(bpms[0]),
                       np.array(sorted(beats)), np.array(sorted(downbeats)), secs)
+
+
+# --------------------------------------------------------------------------- virtual DJ mixer
+@dataclass(frozen=True)
+class MixMove:
+    """A DJ gesture on the mixer, applied to an already rendered track.
+
+    kind:
+      "low_kill"   isolator / EQ low kill: everything below ``freq`` removed (ramp ``ramp`` s)
+      "high_kill"  isolator / EQ high kill: everything above ``freq`` removed
+      "hp_sweep"   high-pass filter whose cutoff rises from ``freq`` to ``freq_end`` over the move
+      "lp_sweep"   low-pass filter whose cutoff falls from ``freq`` to ``freq_end`` over the move
+    """
+    kind: str
+    start: float
+    end: float
+    freq: float = 180.0
+    freq_end: float = 1500.0
+    ramp: float = 0.15
+
+
+def apply_mixer(audio: np.ndarray, sr: int, moves: list[MixMove]) -> np.ndarray:
+    """Apply mixer gestures with an STFT gain mask (sqrt-Hann, 75 % overlap, exact reconstruction)."""
+    if not moves:
+        return audio
+    n_fft, hop = 2048, 512
+    win = np.sqrt(np.hanning(n_fft + 1)[:-1]).astype(np.float64)
+    pad = np.concatenate([np.zeros(n_fft), audio.astype(np.float64), np.zeros(n_fft)])
+    out = np.zeros_like(pad)
+    norm = np.zeros_like(pad)
+    freqs = np.fft.rfftfreq(n_fft, 1.0 / sr)
+    for i in range(0, len(pad) - n_fft, hop):
+        t = (i + n_fft / 2 - n_fft) / sr                    # time of the frame centre in the track
+        gain = np.ones_like(freqs)
+        for m in moves:
+            if t < m.start - m.ramp or t > m.end + m.ramp:
+                continue
+            depth = min(1.0, max(0.0, min(t - (m.start - m.ramp), (m.end + m.ramp) - t) / max(m.ramp, 1e-3)))
+            frac = min(1.0, max(0.0, (t - m.start) / max(m.end - m.start, 1e-3)))
+            if m.kind == "low_kill":
+                cut = freqs < m.freq
+            elif m.kind == "high_kill":
+                cut = freqs > m.freq
+            elif m.kind == "hp_sweep":
+                fc = m.freq * (m.freq_end / m.freq) ** frac
+                cut = freqs < fc
+            elif m.kind == "lp_sweep":
+                fc = m.freq * (m.freq_end / m.freq) ** frac
+                cut = freqs > fc
+            else:
+                raise ValueError(m.kind)
+            gain = np.where(cut, gain * (1.0 - depth * 0.997), gain)       # about -50 dB
+        frame = pad[i:i + n_fft] * win
+        spec = np.fft.rfft(frame) * gain
+        out[i:i + n_fft] += np.fft.irfft(spec, n_fft) * win
+        norm[i:i + n_fft] += win ** 2
+    res = out / np.maximum(norm, 1e-9)
+    return res[n_fft:n_fft + len(audio)].astype(np.float32)

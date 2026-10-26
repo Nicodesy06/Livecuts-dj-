@@ -209,7 +209,8 @@ class TimelineWidget(QWidget):
             p.drawRoundedRect(r, 3, 3)
         for t, kind in self.marks:
             x = 10 + t * sx
-            col = {"reentry": T.LIVE, "transition": T.WARN, "sparse_start": T.INFO}.get(kind, T.MUTED)
+            col = {"reentry": T.LIVE, "transition": T.WARN, "sparse_start": T.INFO, "eq_cut": T.ACCENT,
+                   "filter": T.ACCENT, "eq_return": T.OK}.get(kind, T.MUTED)
             p.setPen(QPen(QColor(col), 2))
             p.drawLine(int(x), top - 8, int(x), top - 2)
         p.setPen(QColor(T.FAINT))

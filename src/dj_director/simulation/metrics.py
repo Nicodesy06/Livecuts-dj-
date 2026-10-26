@@ -69,7 +69,7 @@ def compute_metrics(name: str, shots: Sequence[ShotRecord], master: Optional[str
                     classes: Optional[dict[str, str]] = None,
                     caps: Optional[dict[str, float]] = None,
                     targets: Optional[dict[str, float]] = None,
-                    window: float = 300.0) -> EditorialMetrics:
+                    window: float = 300.0, gesture_cap: Optional[float] = None) -> EditorialMetrics:
     shots = [s for s in shots if s.duration > 0]
     if not shots:
         return EditorialMetrics(name, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, None, 0)
@@ -138,7 +138,12 @@ def compute_metrics(name: str, shots: Sequence[ShotRecord], master: Optional[str
                 t += 30.0
             dev = round(worst, 3)
     if caps:
-        cap_viol = sum(1 for s in shots[:-1] if s.duration > caps.get(s.camera, float("inf")) + 0.25)
+        def cap(s: ShotRecord) -> float:
+            # a mixer shot opened by a DJ gesture has its own cap (mix_shot_cap)
+            if gesture_cap and s.reason.startswith(("entry: DJ ", "exit: DJ ")):
+                return gesture_cap
+            return caps.get(s.camera, float("inf"))
+        cap_viol = sum(1 for s in shots[:-1] if s.duration > cap(s) + 0.25)
     gaps = [b.start - a.start for a, b in zip(shots, shots[1:])]
     repeated = sum(1 for g1, g2 in zip(gaps, gaps[1:]) if abs(g1 - g2) < 0.5)
     mean = statistics.fmean(durs)

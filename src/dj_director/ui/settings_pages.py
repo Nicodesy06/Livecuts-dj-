@@ -515,6 +515,7 @@ PARAM_LABELS = {
     "detail_hard_cap": ("Detail hard cap (s)", 12.0, 15.0, 0.5),
     "side_hard_cap": ("Side hard cap (s)", 20.0, 25.0, 0.5),
     "visual_novelty_threshold": ("Visual novelty threshold", 0.05, 1.0, 0.05),
+    "mix_shot_cap": ("Mixer shot cap during a DJ gesture (s)", 15.0, 25.0, 0.5),
 }
 
 
@@ -563,6 +564,8 @@ class DirectorPage(QWidget):  # noqa: D101
         f.addRow(tr("Sync offset (send cut earlier by)"), self.offset)
         self.drop = QComboBox()
         f.addRow(tr("Shot opened on the drop"), self.drop)
+        self.mixer = QComboBox()
+        f.addRow(tr("Mixer shot for DJ gestures (EQ, filters)"), self.mixer)
         f.addRow(tr("Random seed (fixed = reproducible)"), self.seed)
         self.lang = QComboBox()
         self.lang.addItem(tr("Automatic"), "auto")
@@ -675,6 +678,14 @@ class DirectorPage(QWidget):  # noqa: D101
         reveal_on = dataclasses.replace(PRESETS.get(d.preset, PRESETS["natural"]), **d.overrides).drop_reveal
         key = d.drop_scene if reveal_on else "__off__"
         self.drop.setCurrentIndex(max(0, self.drop.findData(key)))
+        self.mixer.clear()
+        self.mixer.addItem(tr("Automatic (the DETAIL / OVERHEAD camera)"), "")
+        self.mixer.addItem(tr("Off (gestures are ignored)"), "__off__")
+        for c in self.ctrl.config.cameras:
+            if c.enabled and not c.is_master:
+                self.mixer.addItem(c.scene_name, c.scene_name)
+        gestures_on = dataclasses.replace(PRESETS.get(d.preset, PRESETS["natural"]), **d.overrides).mix_gestures
+        self.mixer.setCurrentIndex(max(0, self.mixer.findData(d.mixer_scene if gestures_on else "__off__")))
         names = [c.scene_name for c in self.ctrl.config.cameras if c.enabled]
         for i, combo in enumerate((self.cal_a, self.cal_b)):
             combo.clear()
@@ -729,6 +740,12 @@ class DirectorPage(QWidget):  # noqa: D101
             d.drop_scene = ""
         else:
             d.drop_scene = drop or ""
+        mix = self.mixer.currentData()
+        if mix == "__off__":
+            d.overrides["mix_gestures"] = False
+            d.mixer_scene = ""
+        else:
+            d.mixer_scene = mix or ""
         self.ctrl.apply_config(cfg)
 
     def refresh(self, s: AppSnapshot) -> None:

@@ -21,7 +21,7 @@ from dj_director.config.schema import (AnalysisConfig, CameraConfig, CameraRole,
                                        to_dict)
 from dj_director.core.events import DirectorAction, DirectorDecisionEvent
 from dj_director.director.cameras import CameraRegistry
-from dj_director.director.engine import DirectorEngine, EngineSettings
+from dj_director.director.engine import MIX_SHOT_RANGE, DirectorEngine, EngineSettings
 from dj_director.music.analyzer import AnalysisPipeline
 from dj_director.simulation.metrics import (EditorialMetrics, ShotRecord, compute_metrics,
                                             random_baseline, timer_baseline)
@@ -156,18 +156,20 @@ def run_replay(audio: np.ndarray, sr: int, cameras: Sequence[CameraConfig] | Non
     cools = {c.name: c.cooldown for c in reg}
     classes = {n: sp.cls for n, sp in specs.items()}
     caps = {n: sp.cap for n, sp in specs.items()}
+    lo, hi = MIX_SHOT_RANGE
+    gcap = min(max(engine.p.mix_shot_cap, lo), hi)
     targets = engine.coverage_targets()
     metrics = compute_metrics("music-aware", shots, master, mins, cools, beat_times, section_starts,
-                              phrase_times, classes, caps, targets, engine.p.coverage_window)
+                              phrase_times, classes, caps, targets, engine.p.coverage_window, gcap)
     result = SimResult(shots, decisions, states, music_events, metrics, duration=total)
     if baselines:
         names = [c.name for c in reg]
         result.baselines["timer-12s"] = compute_metrics(
             "timer-12s", timer_baseline(names, total), master, mins, cools, None, section_starts,
-            phrase_times, classes, caps, targets, engine.p.coverage_window)
+            phrase_times, classes, caps, targets, engine.p.coverage_window, gcap)
         result.baselines["random"] = compute_metrics(
             "random", random_baseline(names, total, seed), master, mins, cools, None, section_starts,
-            phrase_times, classes, caps, targets, engine.p.coverage_window)
+            phrase_times, classes, caps, targets, engine.p.coverage_window, gcap)
     return result
 
 

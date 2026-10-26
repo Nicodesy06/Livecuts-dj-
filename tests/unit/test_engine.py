@@ -360,6 +360,86 @@ def test_reveal_shot_is_held_back_during_the_build_up():
     assert entries and all(d.candidate_camera != "B" for d in entries)
 
 
+# ----------------------------------------------------------------------------- DJ gestures (0.3)
+def run_g(engine, seconds, gesture_fn, events_fn=None, start=0.0, dt=0.05):
+    """Like run(), with the snapshot's mix_gesture driven by gesture_fn(t)."""
+    out, t = [], start
+    while t < start + seconds:
+        evs = events_fn(t) if events_fn else ()
+        sn = dataclasses.replace(snap(t), mix_gesture=gesture_fn(t))
+        out.append(engine.tick(t, sn, evs))
+        t = round(t + dt, 6)
+    return out
+
+
+def _cut_on_master(e, t_cut=14.0, detail="low: -30 dB"):
+    e.tick(0, snap(0))
+    run(e, t_cut, start=0.05)
+    assert e.current == "M"
+    return MusicEvent(t_cut, "eq_cut", 0.85, detail)
+
+
+def test_dj_cutting_the_bass_cuts_to_the_mixer_on_the_beat():
+    e = make(4)
+    ev = _cut_on_master(e)
+    ds = run_g(e, 3, lambda t: "eq_cut:low", lambda t: (ev,) if t == 14.0 else (), start=14.0)
+    sw = switches(ds)
+    assert sw and sw[0].candidate_camera == "D" and sw[0].reason.startswith("entry: DJ cuts the lows")
+    assert sw[0].timing in (TimingMode.BEAT, TimingMode.DOWNBEAT)
+
+
+def test_mixer_shot_is_held_15_20s_while_the_gesture_lasts_never_beyond_its_cap():
+    e = make(4)
+    ev = _cut_on_master(e)
+    ds = run_g(e, 40, lambda t: "eq_cut:low", lambda t: (ev,) if t == 14.0 else (), start=14.0)
+    sw = switches(ds)
+    assert sw[0].candidate_camera == "D"
+    held = sw[1].t - sw[0].t
+    assert 15.0 <= held <= 20.0 + 0.05, held          # longer than a normal Detail, inside its own cap
+    assert e.p.detail_hard_cap < held                    # the normal detail cap does not apply
+
+
+def test_bass_coming_back_opens_the_reveal_shot():
+    e = make(4)
+    ev = _cut_on_master(e)
+    back = MusicEvent(24.0, "eq_return", 0.95, "bass back in 0.2 s")
+    ds = run_g(e, 12, lambda t: "eq_cut:low" if t < 24.0 else "",
+               lambda t: (ev,) if t == 14.0 else (back,) if t == 24.0 else (), start=14.0)
+    sw = switches(ds)
+    assert [d.candidate_camera for d in sw[:2]] == ["D", "B"]
+    assert sw[1].reason.startswith("exit: drop reveal on B")
+
+
+def test_mixer_shot_ends_soon_after_the_dj_lets_go():
+    e = make(4)
+    ev = _cut_on_master(e)
+    ds = run_g(e, 20, lambda t: "eq_cut:low" if t < 20.0 else "", lambda t: (ev,) if t == 14.0 else (),
+               start=14.0)
+    sw = switches(ds)
+    assert sw[0].candidate_camera == "D" and len(sw) >= 2
+    assert sw[1].t - sw[0].t < 12.0                      # released ~2 s after the gesture, not at 15-20 s
+
+
+def test_gesture_during_another_insert_moves_to_the_mixer():
+    e = make(4)
+    e.tick(0, snap(0))
+    e.force("S", 1.0, "test")
+    run(e, 8.0, start=1.05)                              # past the side minimum (7 s)
+    ev = MusicEvent(9.1, "filter", 0.8, "high-pass: -25 dB")
+    ds = run_g(e, 2, lambda t: "filter:low", lambda t: (ev,) if t == 9.1 else (), start=9.1)
+    sw = switches(ds)
+    assert sw and sw[0].candidate_camera == "D" and "high-pass filter" in sw[0].reason
+
+
+def test_mixer_camera_can_be_chosen_and_gestures_switched_off():
+    e = make(4, mixer_scene="B")
+    assert e.mixer_camera().name == "B"
+    e2 = make(4, params={"mix_gestures": False})
+    ev = _cut_on_master(e2)
+    ds = run_g(e2, 3, lambda t: "eq_cut:low", lambda t: (ev,) if t == 14.0 else (), start=14.0)
+    assert not any("DJ" in d.reason for d in ds)
+
+
 # ----------------------------------------------------------------------------- visual veto (0.2)
 def test_vetoed_camera_is_never_chosen():
     e = make(4, issue=lambda cam: "black frame" if cam.name == "S" else "")

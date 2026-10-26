@@ -144,7 +144,7 @@ class AppController:
                                   override_policy=d.override_policy,
                                   override_seconds=d.override_seconds,
                                   no_signal_policy=d.no_signal_policy,
-                                  drop_scene=d.drop_scene)
+                                  drop_scene=d.drop_scene, mixer_scene=d.mixer_scene)
         seed = d.seed or int(time.time())
         return DirectorEngine(self.registry, resolve_params(d), settings, seed=seed,
                               visual_fit=lambda cam: self.visual.score(cam.name) or 0.0,
@@ -363,6 +363,9 @@ class AppController:
                     if self.config.director.drop_scene == old:
                         self.config.director.drop_scene = new
                         self.engine.s.drop_scene = new
+                    if self.config.director.mixer_scene == old:
+                        self.config.director.mixer_scene = new
+                        self.engine.s.mixer_scene = new
                     self.vision.rename(old, new)
                     for s in self.engine.history:
                         if s.camera == old:
@@ -384,10 +387,13 @@ class AppController:
                 self.engine = self._build_engine()
                 for attr in ("history", "cut_times", "current", "shot_start", "shot_target",
                              "override_until", "consecutive_inserts", "_variety_index", "_novelty",
-                             "phrase_anchor", "_anchor_period"):
+                             "phrase_anchor", "_anchor_period", "_mix_shot", "_gesture_off_since", "_last_frac"):
                     setattr(self.engine, attr, getattr(old, attr))
                 cam = self.registry.get(self.engine.current)
                 self.engine.shot_spec = self.engine.spec(cam) if cam is not None else None
+                if self.engine._mix_shot and cam is not None:
+                    self.engine._open_mix_shot()      # a mixer shot keeps its gesture window
+                    self.engine.shot_target = old.shot_target
 
     def _tick(self) -> None:
         st = self.status

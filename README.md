@@ -47,6 +47,9 @@ Durante il set tu pensi solo alla musica. DJ Director:
   BPM, beat e andamento: groove, breakdown, build-up, drop, transizioni;
 - 🎬 **decide** se e quando tagliare e su quale camera, come un regista discreto: riprese lunghe sul
   master, inserti brevi sui dettagli, tagli sul beat e sui confini di frase, mai a ogni cassa;
+- 🎚️ **sente i tuoi gesti sul mixer** (novità 0.3), solo dall'audio, con qualsiasi console, MPC o
+  giradischi: togli i bassi o apri un filtro → camera del mixer per 15–20 s; il basso rientra → camera
+  laterale o wide sul beat. Distingue il tuo taglio dell'EQ dalla traccia che si svuota da sola;
 - 👁️ **guarda le camere** (novità 0.2): evita inquadrature nere, ferme, sfocate o coperte, nota il
   movimento delle mani sul mixer e il pubblico a tempo. Sul drop apre l'inquadratura più ampia. Se vuoi,
   un modello AI **locale** (offline, con Ollama) o cloud giudica quale camera è più interessante;
@@ -210,8 +213,8 @@ Tre stili, cioè tre impostazioni dello stesso motore:
 beat. Sposta il cursore finché il taglio cade sulla cassa (taglio in ritardo → più anticipo), poi premi
 **Ferma calibrazione** per salvare il valore.
 
-In **Comportamento** scegli anche l'**inquadratura che si apre sul drop**: una qualsiasi delle tue scene,
-automatica oppure spenta.
+In **Comportamento** scegli anche l'**inquadratura che si apre sul drop** e l'**inquadratura del mixer per i
+gesti del DJ**: una qualsiasi delle tue scene, automatica oppure spenta.
 
 ### Visione: il regista guarda le camere
 
@@ -232,8 +235,8 @@ automatica oppure spenta.
 | **Locale** (Ollama, consigliato Qwen3-VL 4B) | Gratis, offline, nulla esce dal PC | Serve una scheda video; il modello va scaricato una volta (3,3 GB) |
 | **Cloud** (API Claude) | Il giudizio migliore, nessun carico sul PC | Internet, chiave API, costo per sguardo; le istantanee lasciano il PC |
 
-La pagina include anche una **sonda MIDI**: dice se il tuo controller invia messaggi al PC. Una Pioneer
-XDJ-RX3 in standalone di norma non ne invia.
+La pagina include anche una **sonda MIDI**: dice se il tuo controller invia messaggi al PC. È un extra: i
+gesti sul mixer il regista li sente già dall'audio.
 
 ### Simulazione
 
@@ -314,7 +317,7 @@ Altri casi nella [guida completa](docs/GUIDA_UTENTE.md#12-risoluzione-dei-proble
 git clone https://github.com/Nicodesy06/Livecuts-dj-.git && cd Livecuts-dj-
 python -m venv .venv && . .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements-lock.txt && pip install -e ".[dev]"
-QT_QPA_PLATFORM=offscreen pytest                     # 170+ test: unit, integrazione, GUI, qualità
+QT_QPA_PLATFORM=offscreen pytest                     # 190+ test: unit, integrazione, GUI, qualità
 python -m dj_director                                # avvia l'interfaccia
 ```
 
@@ -331,7 +334,7 @@ dj-director selftest                                            # verifica di un
 **Build Windows**: `powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1` (test, PyInstaller,
 self-test degli eseguibili, guida PDF, zip). La CI (`.github/workflows/build-windows.yml`) fa lo stesso su
 ogni push. Per pubblicare una release: *Actions › test-and-build-windows › Run workflow* con
-`release_tag` (es. `v0.2.0`).
+`release_tag` (es. `v0.3.0`).
 
 **Struttura**
 
@@ -361,7 +364,7 @@ scheda audio. Le immagini delle camere nella pagina Visione sono quelle sintetic
 | Documento | Contenuto |
 |---|---|
 | [Guida all'utilizzo](docs/GUIDA_UTENTE.md) | Manuale completo per l'utente (anche in PDF nella release) |
-| [Come decide il regista](docs/DIRECTOR.md) | Ingresso e uscita, budget di copertura, visione (occhio veloce e lento), drop, timing, preset |
+| [Come decide il regista](docs/DIRECTOR.md) | Ingresso e uscita, budget di copertura, gesti del DJ dall'audio, visione (occhio veloce e lento), drop, timing, preset |
 | [Architettura](docs/ARCHITECTURE.md) | Moduli, thread, flussi di dati |
 | [Audit tecnico](docs/TECHNICAL_AUDIT.md) | Scelte tecnologiche, librerie e rischi |
 | [Test e risultati](docs/TESTING.md) | Test automatici, misure, checklist dei test manuali |

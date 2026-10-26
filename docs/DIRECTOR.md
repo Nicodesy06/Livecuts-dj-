@@ -142,6 +142,47 @@ L'uscita dipende soprattutto dalla **durata**.
 Anche l'uscita cade sul downbeat o sul beat, senza attendere la frase. Ha una scadenza (`deadline`)
 che non supera mai il tetto.
 
+## Gesti del DJ sentiti nell'audio (v0.3)
+
+Codice: `src/dj_director/music/mixing.py`. Funziona con **qualsiasi** sorgente (console, controller, MPC,
+sampler, vinili attraverso un mixer), perché ascolta solo l'uscita master tramite l'interfaccia audio:
+il MIDI non serve.
+
+**Chi ha tolto i bassi?** Livello per banda (20-60-120-250-500-1k-2k-4k-8k-14k Hz) dell'ultimo secondo,
+confrontato con un riferimento preso tra 1,5 e 6 s prima. Il riferimento viene congelato appena qualcosa
+inizia a scendere.
+
+| Caso | Cosa si sente | Evento |
+|---|---|---|
+| **Kill dell'EQ / isolatore** | le basse (o le alte) crollano di oltre 10 dB in meno di 1,5 s, **tutto il resto resta identico** (entro 4 dB): stesse clap, hat, pad | `eq_cut` (detail `low` / `high`) |
+| **Filtro** (passa-alto / passa-basso) | il taglio sale (o scende) banda dopo banda in qualche secondo, il resto è intatto | `filter` |
+| **La traccia si svuota da sola** | le basse se ne vanno ma cambia anche il resto: clap che spariscono, pad che entrano, livello e densità che si muovono | nessun gesto → stati *sparse* / *re-entry* come prima |
+| **Il basso rientra** | la parte tagliata torna entro 4 dB del riferimento. Ritorno secco (bass swap, drop) = confidenza alta; ritorno lento (filtro rilasciato piano) = bassa | `eq_return` |
+
+- La confidenza dipende soprattutto dalla **forma**: un estremo sparito, il resto intatto.
+- **Limite onesto**: se è la produzione a togliere solo cassa e basso lasciando *tutto* il resto identico,
+  all'ascolto è indistinguibile da un kill dell'EQ, e viene trattata come un gesto.
+- Se durante un gesto cambia tutto il mix (nuova traccia, silenzio), il gesto viene abbandonato senza
+  eventi.
+- Durante un passaggio, il DJ che toglie il basso a una traccia mentre l'altra ha ancora il suo non abbassa
+  le basse complessive: in quel caso non c'è un gesto da sentire, e resta la rilevazione della transizione.
+
+**Regia dei gesti**:
+
+1. **Gesto** (`eq_cut`, `filter`): taglio sul beat verso la **camera del mixer**. È la scena scelta in
+   *Regia › Inquadratura del mixer per i gesti del DJ*, altrimenti la DETAIL (o OVERHEAD) con il peso più
+   alto. Vale dal Master, rispettando la sua durata minima e la soglia di ingresso anticipato, oppure da
+   un altro insert dopo la sua durata minima.
+2. **Inquadratura del mixer**: finestra preferita **15–(cap−1) s** e un tetto proprio, `mix_shot_cap`
+   (20 s, regolabile 15–25). È più lunga di un Detail normale, perché il gesto è il soggetto.
+   - Resta finché il gesto dura ("continuità: il DJ lavora sul mixer"), mai oltre il tetto.
+   - Se il DJ molla senza un ritorno netto, esce circa 2 s dopo (non prima di 6 s).
+3. **Il basso rientra** (`eq_return`, come un drop): apre la **camera di rivelazione** (laterale, dietro o
+   wide) sul beat.
+
+Le regole fisse restano: niente A-B-A-B (se la camera del mixer è appena stata usata attorno al Master, il
+gesto sceglie un'altra camera), durata minima, veto visivo, override manuale.
+
 ## Consapevolezza della scena (v0.2)
 
 Codice: `src/dj_director/visual/`. Le immagini arrivano da OBS (`GetSourceScreenshot`, una richiesta di

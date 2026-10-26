@@ -78,7 +78,12 @@ def tr_decision(d: DirectorDecisionEvent) -> str:
     return f"{action} {cam} — {tr_reason(d.reason)}"
 
 
-_EVENT_IT = {"reentry": "ripartenza", "transition": "transizione", "sparse start": "inizio sezione ridotta"}
+_EVENT_IT = {"reentry": "ripartenza", "transition": "transizione", "sparse start": "inizio sezione ridotta",
+             "eq cut": "taglio EQ del DJ", "filter": "filtro del DJ", "eq return": "rientro del basso"}
+_GESTURE_IT = {"cuts the lows": "toglie i bassi", "cuts the highs": "toglie le alte",
+               "high-pass filter": "filtro passa-alto", "low-pass filter": "filtro passa-basso",
+               "works the mixer": "lavora sul mixer"}
+_EVK = r"reentry|transition|sparse start|eq cut|filter|eq return"
 _TIMING_IT = {"beat": "beat", "downbeat": "downbeat", "immediate": "subito",
               "phrase boundary (4/8 bars after the last drop)": "confine di frase (4/8 battute dall'ultimo drop)",
               "phrase": "frase"}
@@ -108,16 +113,22 @@ _REASONS_IT: list[tuple[str, object]] = [
     (r"entry: visual novelty on (.+) \(([\d.]+)\)", r"ingresso: novità visiva su \1 (\2)"),
     (r"entry: editorial, master (\d+)s of ~(\d+)s \(master (\d+)%/(\d+)%\)",
      r"ingresso editoriale: master \1 s su ~\2 s (master \3%/\4%)"),
-    (r"entry: (?P<k>reentry|transition|sparse start) \((?P<c>[\d.]+)\)",
+    (r"entry: (?P<k>reentry|transition|sparse start|eq cut|filter|eq return) \((?P<c>[\d.]+)\)",
      lambda m: f"ingresso: {_ev(m)} ({m.group('c')})"),
     (r"(master|detail|side) coverage (\d+)%/(\d+)%",
      lambda m: f"copertura {_CLASS_IT[m.group(1)]} {m.group(2)}%/{m.group(3)}%"),
     (r"exit: hard cap (\d+)s", r"uscita: limite massimo \1 s"),
     (r"entry: drop reveal on (.+) \(([\d.]+)\)", r"ingresso: rivelazione sul drop su \1 (\2)"),
+    (r"entry: DJ (.+) \(([\d.]+)\)", lambda m: f"ingresso: il DJ {_GESTURE_IT.get(m.group(1), m.group(1))} "
+                                                f"({m.group(2)})"),
+    (r"exit: DJ (.+) \(([\d.]+)\)", lambda m: f"uscita: il DJ {_GESTURE_IT.get(m.group(1), m.group(1))} "
+                                               f"({m.group(2)})"),
+    (r"to the mixer (.+)", r"verso il mixer \1"),
+    (r"continuity: DJ at work on the mixer", "continuità: il DJ lavora sul mixer"),
     (r"exit: drop reveal on (.+) \(([\d.]+)\)", r"uscita: rivelazione sul drop su \1 (\2)"),
     (r"entry: master shot unusable \((.+)\)", lambda m: f"ingresso: master non utilizzabile ({_issue_it(m.group(1))})"),
     (r"exit: shot unusable \((.+)\)", lambda m: f"uscita: inquadratura non utilizzabile ({_issue_it(m.group(1))})"),
-    (r"exit: (?P<k>reentry|transition|sparse start) \((?P<c>[\d.]+)\)",
+    (r"exit: (?P<k>reentry|transition|sparse start|eq cut|filter|eq return) \((?P<c>[\d.]+)\)",
      lambda m: f"uscita: {_ev(m)} ({m.group('c')})"),
     (r"insert (\d+)s of ~(\d+)s planned \(preferred (\d+)-(\d+)s\)",
      r"inserto da \1 s su ~\2 s previsti (preferiti \3-\4 s)"),
@@ -146,12 +157,12 @@ _REASONS_IT: list[tuple[str, object]] = [
     (r"returning to master", "ritorno al master"),
     (r"holding", "tengo l'inquadratura"),
     (r"minimum shot length not reached \((\d+)/(\d+)s\)", r"durata minima non raggiunta (\1/\2 s)"),
-    (r"(?P<k>reentry|transition|sparse start) \((?P<c>[\d.]+)\)", lambda m: f"{_ev(m)} ({m.group('c')})"),
+    (r"(?P<k>reentry|transition|sparse start|eq cut|filter|eq return) \((?P<c>[\d.]+)\)", lambda m: f"{_ev(m)} ({m.group('c')})"),
     (r"insert at max length \((\d+)s\)", r"inserto alla durata massima (\1 s)"),
     (r"shot length (\d+)s of ~(\d+)s planned", r"inquadratura da \1 s su ~\2 s previsti"),
     (r"stable", "stabile"),
     (r"no editorial reason to cut", "nessun motivo editoriale per tagliare"),
-    (r"(?P<k>reentry|transition|sparse start) noted but not enough reason to cut yet",
+    (r"(?P<k>reentry|transition|sparse start|eq cut|filter|eq return) noted but not enough reason to cut yet",
      lambda m: f"{_ev(m)} rilevata ma non ancora motivo sufficiente per tagliare"),
     (r"stable groove", "groove stabile"),
     (r"insufficient editorial benefit", "beneficio editoriale insufficiente"),
@@ -649,4 +660,12 @@ IT: dict[str, str] = {
     "Cheapest and fastest.": "Il più economico e veloce.",
     "Less refined judgement; needs internet and an API key; frames leave the PC.":
         "Giudizio meno raffinato; servono internet e una chiave API; le immagini escono dal PC.",
+    # ---- 0.3 DJ gestures heard in the audio
+    "Mixer shot for DJ gestures (EQ, filters)": "Inquadratura del mixer per i gesti del DJ (EQ, filtri)",
+    "Automatic (the DETAIL / OVERHEAD camera)": "Automatica (la camera DETAIL / OVERHEAD)",
+    "Off (gestures are ignored)": "Spenta (i gesti vengono ignorati)",
+    "Mixer shot cap during a DJ gesture (s)": "Limite dell'inquadratura del mixer durante un gesto (s)",
+    "DJ: lows cut on the mixer": "DJ: bassi tolti sul mixer", "DJ: highs cut on the mixer": "DJ: alte tolte sul mixer",
+    "DJ: high-pass filter": "DJ: filtro passa-alto", "DJ: low-pass filter": "DJ: filtro passa-basso",
+    "DJ at work on the mixer": "Il DJ lavora sul mixer",
 }

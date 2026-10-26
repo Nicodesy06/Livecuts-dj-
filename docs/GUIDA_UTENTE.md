@@ -1,6 +1,6 @@
 # DJ Director AI — Guida all'utilizzo
 
-Versione 0.2.0 · Windows 10/11 (64 bit)
+Versione 0.3.0 · Windows 10/11 (64 bit)
 
 DJ Director AI è un regista automatico per i tuoi DJ set. Ascolta la musica che esce dal mixer, ne capisce
 l'andamento (tempo, beat, breakdown, drop) e cambia da solo le inquadrature in OBS Studio, come farebbe
@@ -27,7 +27,7 @@ a meno che tu non scelga esplicitamente l'occhio lento **cloud** (capitolo 9).
 
 ## 2. Installazione
 
-1. Scarica **`DJDirectorAI-0.2.0-win64.zip`** dalla pagina *Releases* del progetto su GitHub.
+1. Scarica **`DJDirectorAI-0.3.0-win64.zip`** dalla pagina *Releases* del progetto su GitHub.
 2. Fai clic destro sullo zip → **Estrai tutto…** in una cartella a tua scelta, per esempio
    `C:\Programmi DJ\DJDirectorAI`. È una versione *portable*: non c'è un'installazione vera e propria.
 3. Apri la cartella ed esegui **`DJDirectorAI.exe`**.
@@ -249,6 +249,9 @@ Host, porta e password (salvata **cifrata** con la protezione di Windows), più 
 - **Inquadratura che si apre sul drop**: la scena da mostrare quando arriva il drop. Può essere qualsiasi
   tua scena (un campo largo, la camera dietro, in futuro il pubblico). *Automatica* sceglie la più larga
   tra WIDE, BEHIND e SIDE, oppure quella suggerita dall'occhio lento. *Spenta* riporta il drop al Master.
+- **Inquadratura del mixer per i gesti del DJ**: la camera da mostrare quando togli i bassi, le alte o
+  usi un filtro (vedi *I gesti del DJ* nel capitolo 11). *Automatica* usa la camera DETAIL (o OVERHEAD);
+  *Spenta* ignora i gesti. In *Avanzate* regoli quanto può durare al massimo (15–25 s, di default 20 s).
 - **Calibrazione della sincronizzazione**: vedi il capitolo 10.
 - **Avanzate**: tutti i parametri del motore. Tra questi:
   - soglia di taglio, scale delle durate, tagli massimi al minuto, attesa per i confini di frase;
@@ -346,7 +349,8 @@ per creare tensione. Quando arriva il drop, **apre** su quell'inquadratura, sul 
 
 ### Hardware DJ (MIDI)
 
-Il pulsante **Avvia sonda MIDI** ascolta per 30 secondi se il tuo controller manda messaggi al PC mentre
+È un extra, non serve: i gesti sul mixer il regista li **sente nell'audio** (capitolo 11), con qualsiasi
+console, controller, MPC o giradischi, anche usando solo la UCA222. Il pulsante **Avvia sonda MIDI** ascolta per 30 secondi se il tuo controller manda messaggi al PC mentre
 muovi fader e manopole. Con una **Pioneer XDJ-RX3 in standalone**, secondo il manuale non arriva nulla:
 il MIDI esce solo in modalità SOFTWARE CONTROL o con MIXER MODE = MIDI CONTROL. La sonda serve a
 verificarlo in un minuto sul tuo apparecchio.
@@ -395,6 +399,14 @@ Valori tipici: da 40 a 150 ms.
   musicali sul beat successivo. Se il programma non è sicuro del ritmo, non finge precisione.
 - **Niente ping-pong, niente casualità.** Non ripete subito lo stesso inserto. Le durate seguono una
   sequenza deterministica: con la stessa musica e lo stesso seed la regia è identica.
+- **Sente i tuoi gesti sul mixer**, senza MIDI, solo dall'audio:
+  - quando **togli i bassi** (EQ o isolatore), togli le alte o apri un **filtro**, passa alla **camera del
+    mixer** e la tiene per 15–20 secondi, finché il gesto dura;
+  - quando **il basso rientra**, apre la camera laterale, dietro o wide, sul beat.
+
+  Il regista distingue il tuo gesto dalla traccia che si svuota da sola: con l'EQ sparisce solo una
+  parte dello spettro e tutto il resto resta identico; in un breakdown della traccia cambiano anche
+  gli altri strumenti.
 - **Guarda le camere.** Non manda in onda un'inquadratura nera, ferma, sfocata o coperta, e ne esce
   subito se lo diventa. Sul drop apre l'inquadratura più ampia, dopo averla tenuta da parte durante il
   build-up.
@@ -457,4 +469,8 @@ predefiniti, senza bloccarsi.
   solo per la camera del drop e non con la frequenza *Bassa*.
 - L'occhio lento (modello AI) è stato verificato nel codice e con server di prova, non ancora su serate
   reali: valuta i suoi giudizi in modalità Shadow.
+- Gesti sul mixer: se è la traccia stessa a togliere solo cassa e basso lasciando tutto il resto identico,
+  all'ascolto è indistinguibile da un tuo taglio dell'EQ, e il regista lo tratta come un gesto. Durante un
+  passaggio, se togli il basso a una traccia mentre l'altra ha ancora il suo, le basse complessive non
+  calano e il gesto non si sente.
 - Le funzioni che riguardano il "downbeat" (inizio battuta) e le frasi musicali sono stime, non certezze.

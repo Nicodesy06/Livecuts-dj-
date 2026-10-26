@@ -123,7 +123,7 @@ class MusicFeatures:
 class MusicEvent:
     """Discrete, probabilistic musical events (never certainties)."""
     t: float
-    kind: str                  # "reentry" | "transition" | "sparse_start" | "phrase_boundary"
+    kind: str                  # "reentry" | "transition" | "sparse_start" | "eq_cut" | "filter" | "eq_return"
     confidence: float
     detail: str = ""
 
@@ -140,6 +140,7 @@ class MusicSnapshot:
     events: tuple[MusicEvent, ...] = ()
     analysis_latency_ms: float = 0.0
     warmed_up: bool = False
+    mix_gesture: str = ""      # DJ gesture heard in progress, e.g. "eq_cut:low", "filter:high" ("" = none)
 
     @property
     def state_duration(self) -> float:

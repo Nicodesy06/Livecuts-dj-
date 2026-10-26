@@ -3,6 +3,34 @@
 Tutte le modifiche rilevanti di DJ Director AI. Formato ispirato a
 [Keep a Changelog](https://keepachangelog.com/it/1.1.0/); versioni [SemVer](https://semver.org/lang/it/).
 
+## [0.3.0] — 2026-10-26
+
+### Aggiunto — il regista sente i gesti del DJ nell'audio
+- **Gesti sul mixer riconosciuti dal solo audio**, senza MIDI e con qualsiasi sorgente (console,
+  controller, MPC, giradischi tramite la UCA222):
+  - **kill dell'EQ / isolatore** sulle basse o sulle alte;
+  - **filtri** passa-alto e passa-basso;
+  - **rientro del basso**.
+- **Il gesto del DJ è distinto dalla traccia che si svuota da sola**: in un kill sparisce un estremo dello
+  spettro e tutto il resto resta identico; in un breakdown cambia anche il resto. Sui set sintetici i
+  breakdown della traccia non producono gesti.
+- **Regia dei gesti**:
+  - un gesto porta sul beat alla **camera del mixer**, tenuta 15–20 s finché il gesto dura, con un tetto
+    proprio (`mix_shot_cap`, 15–25 s);
+  - il rientro del basso apre la **camera di rivelazione** (laterale, dietro o wide) sul beat;
+  - se il DJ molla senza un rientro netto, l'inquadratura del mixer termina poco dopo.
+- **Regia › Inquadratura del mixer per i gesti del DJ**: automatica (DETAIL / OVERHEAD), una scena a
+  scelta o spenta.
+- Dashboard: il gesto in corso ("DJ: bassi tolti sul mixer"). Timeline della simulazione: i nuovi eventi.
+- **Mixer virtuale nel generatore sintetico** (`apply_mixer`: kill e filtri) per test e demo.
+
+### Cambiato
+- La sonda MIDI resta, ma come extra: i gesti si sentono già dall'audio.
+
+### Compatibilità
+- Le configurazioni precedenti si caricano senza modifiche; i gesti sono attivi di default (si spengono
+  da Regia).
+
 ## [0.2.0] — 2026-10-26
 
 ### Aggiunto — il regista guarda le camere

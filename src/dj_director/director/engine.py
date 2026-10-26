@@ -44,6 +44,14 @@ Scene awareness (0.2)
     eye's suggestion, else wide / behind / side) is held back during the
     build-up and opened on the drop, on the beat.
 
+DJ gestures (0.3)
+    Heard in the master audio, no MIDI needed: an EQ / isolator kill or a filter
+    sweep (one end of the spectrum gone, the rest of the mix untouched) cuts to
+    the *mixer camera*, which is held 15-20 s while the gesture lasts (its own
+    cap, ``mix_shot_cap``). When the bass slams back in (or a drop re-enters),
+    the reveal shot opens on the beat. A track that empties by itself is not a
+    gesture: that is the sparse / re-entry logic.
+
 Determinism
     No random numbers. Shot lengths vary through a low-discrepancy (golden
     ratio) sequence per coverage class, offset by the seed, and through the
@@ -85,8 +93,16 @@ MUSICAL_FIT: dict[CameraRole, dict[MusicState, float]] = {
 }
 
 # Base strength of each musical event as a reason to cut (times its confidence).
-EVENT_WEIGHT = {"reentry": 0.95, "transition": 0.5, "sparse_start": 0.4}
-EVENT_TTL = {"reentry": 2.5, "transition": 4.0, "sparse_start": 3.0}
+EVENT_WEIGHT = {"reentry": 0.95, "transition": 0.5, "sparse_start": 0.4,
+                # DJ gestures heard in the audio (music.mixing): EQ / isolator kills, filters, bass back
+                "eq_cut": 1.0, "filter": 0.9, "eq_return": 1.0}
+EVENT_TTL = {"reentry": 2.5, "transition": 4.0, "sparse_start": 3.0, "eq_cut": 3.0, "filter": 3.0,
+             "eq_return": 2.5}
+GESTURES = ("eq_cut", "filter")            # the DJ is working the mixer -> mixer camera
+DROP_EVENTS = ("reentry", "eq_return")     # the low end slams back in -> reveal shot
+GESTURE_TEXT = {"low": "cuts the lows", "high": "cuts the highs", "high-pass": "high-pass filter",
+                "low-pass": "low-pass filter"}
+MIX_SHOT_RANGE = (15.0, 25.0)             # cap of a mixer shot held during a DJ gesture
 PHRASE_BEATS = 16      # 4 bars of 4/4: the smallest phrase unit dance music is built from
 PHI_INV = 0.6180339887498949
 COVERAGE_PRIOR_S = 45.0            # pseudo-seconds at target shares: smooths the first minutes
@@ -139,6 +155,7 @@ class EngineSettings:
     override_seconds: float = 30.0
     no_signal_policy: str = "master"
     drop_scene: str = ""              # reveal camera for drops ("" = automatic)
+    mixer_scene: str = ""             # camera on the mixer for DJ gestures ("" = automatic)
 
 
 class VisualNovelty:
@@ -181,6 +198,11 @@ class VisualEvent:
     strength: float
 
 
+def _gesture_text(ev: MusicEvent) -> str:
+    side = ev.detail.split(":", 1)[0].strip()
+    return GESTURE_TEXT.get(side, "works the mixer")
+
+
 class DirectorEngine:
     def __init__(self, registry: CameraRegistry, params: DirectorParams,
                  settings: EngineSettings | None = None, seed: int = 0,
@@ -214,6 +236,9 @@ class DirectorEngine:
         self._novelty: dict[str, VisualNovelty] = {}
         self._visual_events: list[VisualEvent] = []
         self.last_decision: Optional[DirectorDecisionEvent] = None
+        self._mix_shot = False             # current shot was opened by a DJ gesture
+        self._gesture_off_since: Optional[float] = None
+        self._last_frac = 0.5
 
     # ------------------------------------------------------------------ external notifications
     def set_params(self, params: DirectorParams) -> None:
@@ -258,6 +283,7 @@ class DirectorEngine:
                 cls = self.class_of(failed)
                 self._variety_index[cls] = max(0, self._variety_index.get(cls, 1) - 1)
         self.current = previous
+        self._mix_shot = False
         prev_cam = self.reg.get(previous)
         if self.history and self.history[-1].camera == previous:
             self.history[-1].end = None
@@ -328,6 +354,18 @@ class DirectorEngine:
             return None
         return min(cands, key=lambda c: (order.index(c.role), -c.weight, c.name))
 
+    def mixer_camera(self) -> Optional[Camera]:
+        """The shot on the mixer used for DJ gestures: chosen scene, else the best DETAIL / OVERHEAD."""
+        if not self.p.mix_gestures:
+            return None
+        c = self.reg.get(self.s.mixer_scene) if self.s.mixer_scene else None
+        if c is not None and c.usable and not self.reg.is_anchor(c):
+            return c
+        cands = [c for c in self.reg.usable() if not self.reg.is_anchor(c) and c.role in (R.DETAIL, R.OVERHEAD)]
+        if not cands:
+            return None
+        return min(cands, key=lambda c: (c.role != R.DETAIL, -c.weight, c.name))
+
     def _reveal_ok(self, now: float, rc: Optional[Camera], cur: Camera) -> bool:
         return (rc is not None and rc.name != cur.name and not self.veto(rc)
                 and now >= self._failed_until.get(rc.name, 0) and now - rc.last_used_end >= 3.0
@@ -379,7 +417,7 @@ class DirectorEngine:
         for e in events:
             if e.kind in EVENT_WEIGHT:
                 self._triggers.append(e)
-            if e.kind == "reentry" and e.confidence >= self.p.musical_cut_confidence:
+            if e.kind in DROP_EVENTS and e.confidence >= self.p.musical_cut_confidence:
                 self._set_phrase_anchor(e.t, snap)
         self._triggers = [e for e in self._triggers if now - e.t <= EVENT_TTL[e.kind]]
         self._update_visual(now)
@@ -484,7 +522,7 @@ class DirectorEngine:
 
         ranked = self._rank_inserts(now, cur, state, cov, targets, vis_ev)
         rc = self.reveal_camera()
-        if (trig_ev is not None and trig_ev.kind == "reentry" and trig >= vis
+        if (trig_ev is not None and trig_ev.kind in DROP_EVENTS and trig >= vis
                 and self._reveal_ok(now, rc, cur) and rc.allows(state.value)):
             # drop grammar: open on the reveal shot, on the next beat
             timing, target_t = self._timing(now, snap, urgent=True)
@@ -493,6 +531,16 @@ class DirectorEngine:
                       f"{targets.get(self.class_of(rc), 0) * 100:.0f}%")
             return self._commit(now, rc.name, reason, max(0.6, trig_ev.confidence), opportunity, state,
                                 timing, target_t, (), kind="entry", trigger="musical", music=True)
+        mc = self.mixer_camera()
+        if (trig_ev is not None and trig_ev.kind in GESTURES and trig >= vis
+                and self._reveal_ok(now, mc, cur) and mc.allows(state.value)):
+            # the DJ is working the mixer: show it, on the next beat
+            timing, target_t = self._timing(now, snap, urgent=True)
+            mcls = self.class_of(mc)
+            reason = (f"entry: DJ {_gesture_text(trig_ev)} ({trig_ev.confidence:.2f}); "
+                      f"{mcls} coverage {cov.get(mcls, 0) * 100:.0f}%/{targets.get(mcls, 0) * 100:.0f}%")
+            return self._commit(now, mc.name, reason, max(0.6, trig_ev.confidence), opportunity, state,
+                                timing, target_t, (), kind="entry", trigger="gesture", music=True)
         if not ranked:
             why = "only one usable camera" if len(self.reg.usable()) <= 1 else (
                 "all alternatives cooling down or unsuitable")
@@ -593,25 +641,48 @@ class DirectorEngine:
                                 deadline=min(deadline, now + 1.0))
         trig, trig_ev = self._music_trigger()
         rc = self.reveal_camera()
-        if (trig_ev is not None and trig_ev.kind == "reentry" and tos >= sp.min
+        if (trig_ev is not None and trig_ev.kind in DROP_EVENTS and tos >= sp.min
                 and self._reveal_ok(now, rc, cur) and rc.allows(state.value)):
             timing, target_t = self._timing(now, snap, urgent=True, deadline=deadline)
             return self._commit(now, rc.name, f"exit: drop reveal on {rc.name} ({trig_ev.confidence:.2f})",
                                 max(0.6, trig_ev.confidence), trig, state, timing, target_t, (),
                                 kind="exit", trigger="musical", music=True, deadline=deadline)
+        mc = self.mixer_camera()
+        if (trig_ev is not None and trig_ev.kind in GESTURES and tos >= sp.min
+                and self._reveal_ok(now, mc, cur) and mc.allows(state.value)):
+            timing, target_t = self._timing(now, snap, urgent=True, deadline=deadline)
+            return self._commit(now, mc.name, f"exit: DJ {_gesture_text(trig_ev)} ({trig_ev.confidence:.2f}); "
+                                f"to the mixer {mc.name}", max(0.6, trig_ev.confidence), trig, state, timing,
+                                target_t, (), kind="exit", trigger="gesture", music=True, deadline=deadline)
         if tos < sp.min:
             return self._decision(now, DirectorAction.HOLD, None,
                                   f"minimum shot length not reached ({tos:.0f}/{sp.min:.0f}s)", 1.0, state)
         cov = self.coverage(now)
         targets = self.coverage_targets()
         planned = self._insert_length(sp, cov, targets)
+        gesture_note = ""
+        if self._mix_shot:
+            # mixer shot opened by a DJ gesture: held while the gesture lasts (inside its own cap),
+            # released once the DJ has let go for a couple of seconds
+            on = bool(snap is not None and snap.mix_gesture)
+            if on:
+                self._gesture_off_since = None
+                planned = max(planned, self.shot_target)
+                gesture_note = "DJ at work on the mixer"
+            else:
+                if self._gesture_off_since is None:
+                    self._gesture_off_since = now
+                if now - self._gesture_off_since >= 2.0:
+                    planned = min(planned, max(tos, 6.0))
         continuity = self._continuity(now, cur, state, snap)
-        if continuity:
+        if continuity and not self._mix_shot:
             planned = max(planned, sp.pref_max)
+        if gesture_note:
+            continuity = gesture_note
         is_reveal = rc is not None and rc.name == cur.name
 
         # opportune early return: a drop belongs on the master / wide shot (or stays on the reveal)
-        if (trig_ev is not None and trig_ev.kind == "reentry" and not is_reveal
+        if (trig_ev is not None and trig_ev.kind in DROP_EVENTS and not is_reveal
                 and MUSICAL_FIT.get(cur.role, {}).get(S.REENTRY, 0) < MUSICAL_FIT[R.MASTER][S.REENTRY]):
             timing, target_t = self._timing(now, snap, urgent=True, deadline=deadline)
             return self._commit(now, anchor.name,
@@ -723,7 +794,7 @@ class DirectorEngine:
             self.pending = None
             return self._switch_now(now, p.target, p.reason, p.confidence, p.opportunity, state,
                                     timing=p.timing, target_t=p.fire_at + self.s.latency_offset,
-                                    cid=p.correlation_id, scores=p.scores, kind=p.kind)
+                                    cid=p.correlation_id, scores=p.scores, kind=p.kind, trigger=p.trigger)
         return self._decision(now, DirectorAction.HOLD, p.target,
                               f"switch to {p.target} scheduled on {p.timing.value}", p.confidence, state,
                               cid=p.correlation_id, target_t=p.fire_at + self.s.latency_offset)
@@ -734,7 +805,7 @@ class DirectorEngine:
         cid = next_correlation_id()
         if timing == TimingMode.IMMEDIATE or target_t - self.s.latency_offset <= now:
             return self._switch_now(now, target, reason, confidence, opportunity, state, timing=timing,
-                                    target_t=target_t or now, cid=cid, scores=scores, kind=kind)
+                                    target_t=target_t or now, cid=cid, scores=scores, kind=kind, trigger=trigger)
         self.pending = PendingSwitch(target, target_t - self.s.latency_offset, now, timing, reason,
                                      opportunity, confidence, cid, music, scores, kind, trigger, deadline)
         wait = {TimingMode.PHRASE: "phrase boundary (4/8 bars after the last drop)"}.get(timing, timing.value)
@@ -850,15 +921,30 @@ class DirectorEngine:
     def _switch_now(self, now: float, target: str, reason: str, confidence: float, opportunity: float,
                     state: Optional[MusicState], timing: TimingMode = TimingMode.IMMEDIATE,
                     target_t: float = 0.0, cid: int = 0, scores: tuple = (),
-                    kind: str = "") -> DirectorDecisionEvent:
+                    kind: str = "", trigger: str = "") -> DirectorDecisionEvent:
         cid = cid or next_correlation_id()
         prev = self.current
         tos = now - self.shot_start
         self._start_shot(target, now, reason)
+        if trigger == "gesture":
+            self._open_mix_shot()
         self.cut_times.append(now)
         return self._decision(now, DirectorAction.SWITCH, target, reason, confidence, state,
                               opportunity=opportunity, timing=timing, target_t=target_t or now, cid=cid,
                               scores=scores, current=prev, tos=tos)
+
+    def _open_mix_shot(self) -> None:
+        """Turn the shot just started into a mixer shot: preferred 15 s .. cap-1, its own cap (15-25 s)."""
+        sp = self.shot_spec
+        if sp is None:
+            return
+        lo, hi = MIX_SHOT_RANGE
+        cap = min(max(self.p.mix_shot_cap, lo), hi)
+        pmin, pmax = min(15.0, cap - 2.0), cap - 1.0
+        self.shot_spec = ShotSpec(sp.min, pmin, pmax, cap, sp.cooldown, sp.cls)
+        self.shot_target = pmin + self._last_frac * (pmax - pmin)
+        self._mix_shot = True
+        self._gesture_off_since = None
 
     def _start_shot(self, scene: Optional[str], now: float, reason: str) -> None:
         if self.history and self.history[-1].end is None:
@@ -869,6 +955,8 @@ class DirectorEngine:
             old.airtime += now - self.shot_start
         self.current = scene
         self.shot_start = now
+        self._mix_shot = False
+        self._gesture_off_since = None
         cam = self.reg.get(scene)
         if cam is None:
             self.shot_spec = None
@@ -879,6 +967,7 @@ class DirectorEngine:
             self.shot_spec = sp
             v = self._variety(sp.cls)
             frac = 0.5 + self.p.duration_spread * (v - 0.5)
+            self._last_frac = frac
             self.shot_target = sp.pref_min + frac * (sp.pref_max - sp.pref_min)
             if self.reg.is_anchor(cam):
                 self.consecutive_inserts = 0

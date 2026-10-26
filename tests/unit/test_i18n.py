@@ -47,12 +47,14 @@ def test_dynamic_labels_translated():
     dynamic = ([v[0] for v in PARAM_LABELS.values()] + [n for _, n in METRIC_ROWS] + CamerasPage.COLS
                + list(KIND_LABEL.values()) + list(PRESET_DESCRIPTIONS.values()) + [h for h in _HINTS.values() if h]
                + ["Minimal", "Natural", "Dynamic", "connected", "connecting", "disconnected", "auth_failed"])
+    from dj_director.ui.dashboard import GESTURE_LABEL
     from dj_director.ui.vision_page import ISSUE_LABELS, RATE_LABELS, VisionPage
     from dj_director.visual.providers import CLOUD_MODELS, LOCAL_MODELS
     dynamic += (VisionPage.COLS + list(RATE_LABELS.values()) + list(ISSUE_LABELS.values())
                 + [m.pros for m in LOCAL_MODELS + CLOUD_MODELS] + [m.cons for m in LOCAL_MODELS + CLOUD_MODELS]
                 + ["Off", "Local (offline, on this PC)", "Cloud (online, Claude API)", "Vision",
-                   "MIDI inputs found but none could be opened (in use by another program?)."])
+                   "MIDI inputs found but none could be opened (in use by another program?)."]
+                + list(GESTURE_LABEL.values()) + ["DJ at work on the mixer"])
     assert [k for k in dynamic if k not in IT] == []
 
 
@@ -115,8 +117,24 @@ def test_all_engine_reasons_translate(synth_124):
     for issue in ("black frame", "frozen image", "AI: camera pointing at the ceiling"):
         e = make(4, issue=lambda cam, i=issue: i if cam.name in ("M", "S") else "")
         reasons |= {d.reason for d in run(e, 60)}
+    # 0.3 scenarios: DJ gestures (to the mixer from the master and from an insert, held, bass back)
+    from tests.unit.test_engine import run_g
+    for start_on in (None, "S"):
+        e = make(4)
+        e.tick(0, snap(0))
+        if start_on:
+            e.force(start_on, 1.0, "test")
+        cut = MusicEvent(14.0, "eq_cut", 0.85, "low: -30 dB")
+        back = MusicEvent(26.0, "eq_return", 0.95, "bass back")
+        reasons |= {d.reason for d in run_g(e, 30, lambda t: "eq_cut:low" if t < 26 else "",
+                                            lambda t: (cut,) if t == 14.0 else (back,) if t == 26.0 else (),
+                                            start=1.05)}
+    e = make(4, params={"mix_gestures": False})
+    filt = MusicEvent(14.0, "filter", 0.85, "high-pass: -30 dB")
+    reasons |= {d.reason for d in run(e, 20, events_fn=lambda t: (filt,) if t == 14.0 else ())}
     bad = {f for r in reasons for f in untranslated_fragments(r)}
     assert not bad, bad
+    assert "il DJ toglie i bassi" in tr_reason("entry: DJ cuts the lows (0.85)")
     assert "rivelazione sul drop" in tr_reason("entry: drop reveal on Cam Wide (0.90)")
     assert "inquadratura" in tr_reason("shot length 30s of ~32s planned")
 

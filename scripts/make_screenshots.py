@@ -48,7 +48,7 @@ from dj_director.audio import probe  # noqa: E402
 from dj_director.config.manager import ConfigManager  # noqa: E402
 from dj_director.config.schema import AppConfig, CameraConfig, CameraRole  # noqa: E402
 from dj_director.obs.fake_server import FakeObsServer  # noqa: E402
-from dj_director.simulation.synth import generate  # noqa: E402
+from dj_director.simulation.synth import MixMove, apply_mixer, generate  # noqa: E402
 from dj_director.ui import i18n, settings_pages, wizard  # noqa: E402
 from dj_director.ui import theme as T  # noqa: E402
 
@@ -98,6 +98,9 @@ def main() -> int:
                       "Cam Pubblico": {"pulse_period": 60 / 124, "motion": 0.6},
                       "Cam Laterale": {"blur_at": time.monotonic() + 25}}     # loses focus after 25 s
     tr = generate(bpm=124)
+    # the DJ kills the bass for 8 bars and brings it back (heard as a gesture by the director)
+    beat = 60 / 124
+    tr.audio = apply_mixer(tr.audio, tr.sr, [MixMove("low_kill", 40 * beat, 72 * beat)])
     wav_dir = Path(tempfile.mkdtemp(prefix="demo"))
     wav = wav_dir / "demo_dj_set.wav"
     sf.write(wav, tr.audio, tr.sr)
