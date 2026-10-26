@@ -116,3 +116,51 @@ def test_simulation_page_runs(qapp):
         assert p.table.item(0, 0) is not None
     finally:
         ctrl.shutdown()
+
+
+def test_vision_page_live_view_roi_and_provider(qapp, tmp_path):
+    pytest.importorskip("websockets")
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+    from dj_director.config.schema import AppConfig, CameraConfig, CameraRole
+    from dj_director.obs.fake_server import FakeObsServer
+    from dj_director.ui.vision_page import VisionPage
+    srv = FakeObsServer(scenes=["Cam M", "Cam D"]).start()
+    srv.scene_look["Cam D"] = {"black": True}
+    cfg = AppConfig(first_run_done=True)
+    cfg.obs.port = srv.port
+    cfg.cameras = [CameraConfig("Cam M", role=CameraRole.MASTER, is_master=True),
+                   CameraConfig("Cam D", role=CameraRole.DETAIL)]
+    ConfigManager().save(cfg)
+    ctrl = AppController()
+    ctrl.start_services()
+    page = VisionPage(ctrl)
+    page.resize(1100, 1800)
+    page.show()
+    try:
+        assert page.roi_cam.currentText() == "Cam D"           # the detail camera is proposed first
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            qapp.processEvents()
+            page.refresh(ctrl.snapshot())
+            if page.table.rowCount() == 2 and page.table.item(1, 6) and "black" in page.table.item(1, 6).text():
+                break
+            time.sleep(0.1)
+        assert "black" in page.table.item(1, 6).text() and page.table.item(0, 6).text() == "OK"
+        assert page.roi.pix is not None                        # live picture of the selected camera
+        r = page.roi._area()
+        QTest.mousePress(page.roi, Qt.LeftButton, pos=QPoint(int(r.x() + 10), int(r.y() + 10)))
+        QTest.mouseMove(page.roi, QPoint(int(r.x() + r.width() / 2), int(r.y() + r.height() / 2)))
+        QTest.mouseRelease(page.roi, Qt.LeftButton, pos=QPoint(int(r.x() + r.width() / 2),
+                                                               int(r.y() + r.height() / 2)))
+        page.prov_buttons["local"].setChecked(True)
+        assert page.local_box.isVisible() and not page.cloud_box.isVisible()
+        page.prov_buttons["off"].setChecked(True)
+        page.save()
+        roi = ctrl.config.vision.rois["Cam D"]
+        assert 0.0 <= roi[0] < 0.1 and 0.4 < roi[2] <= 0.5
+        assert ConfigManager().load().vision.rois["Cam D"] == roi        # persisted
+    finally:
+        page.close()
+        ctrl.shutdown()
+        srv.stop()

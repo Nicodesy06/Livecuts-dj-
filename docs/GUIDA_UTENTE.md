@@ -1,6 +1,6 @@
 # DJ Director AI — Guida all'utilizzo
 
-Versione 0.1.2 · Windows 10/11 (64 bit)
+Versione 0.2.0 · Windows 10/11 (64 bit)
 
 DJ Director AI è un regista automatico per i tuoi DJ set. Ascolta la musica che esce dal mixer, ne capisce
 l'andamento (tempo, beat, breakdown, drop) e cambia da solo le inquadrature in OBS Studio, come farebbe
@@ -15,18 +15,19 @@ quale scena di OBS mandare in onda. Se lo chiudi o si blocca, OBS continua a reg
 
 | Cosa | Note |
 |---|---|
-| PC Windows 10 o 11 a 64 bit | Basta una CPU recente: il programma usa circa il 3% di un core. Nessuna scheda video particolare |
+| PC Windows 10 o 11 a 64 bit | Basta una CPU recente: il programma usa pochi punti percentuali di un core. La scheda video serve solo se attivi l'occhio lento con un modello locale (capitolo 9) |
 | OBS Studio 28 o successivo | Contiene già il server WebSocket che DJ Director usa per comandarlo |
 | Da 2 a 8 camere già configurate in OBS | Una **scena** di OBS per ogni inquadratura |
 | Un ingresso audio con il **master del mixer** | Per esempio una Behringer UCA222 collegata all'uscita REC del mixer |
 
-Non serve Python, non serve un account, non serve Internet. Nessun dato audio o video lascia il PC.
+Non serve Python, non serve un account, non serve Internet. Nessun dato audio o video lascia il PC,
+a meno che tu non scelga esplicitamente l'occhio lento **cloud** (capitolo 9).
 
 ---
 
 ## 2. Installazione
 
-1. Scarica **`DJDirectorAI-0.1.2-win64.zip`** dalla pagina *Releases* del progetto su GitHub.
+1. Scarica **`DJDirectorAI-0.2.0-win64.zip`** dalla pagina *Releases* del progetto su GitHub.
 2. Fai clic destro sullo zip → **Estrai tutto…** in una cartella a tua scelta, per esempio
    `C:\Programmi DJ\DJDirectorAI`. È una versione *portable*: non c'è un'installazione vera e propria.
 3. Apri la cartella ed esegui **`DJDirectorAI.exe`**.
@@ -245,7 +246,10 @@ Host, porta e password (salvata **cifrata** con la protezione di Windows), più 
   ma mai un taglio a ogni beat).
 - **Comportamento**: cosa fare con un cambio manuale in OBS, quanto rispettarlo, cosa fare se manca
   l'audio, offset di sincronizzazione e lingua dell'interfaccia.
-- **Calibrazione della sincronizzazione**: vedi il capitolo 9.
+- **Inquadratura che si apre sul drop**: la scena da mostrare quando arriva il drop. Può essere qualsiasi
+  tua scena (un campo largo, la camera dietro, in futuro il pubblico). *Automatica* sceglie la più larga
+  tra WIDE, BEHIND e SIDE, oppure quella suggerita dall'occhio lento. *Spenta* riporta il drop al Master.
+- **Calibrazione della sincronizzazione**: vedi il capitolo 10.
 - **Avanzate**: tutti i parametri del motore. Tra questi:
   - soglia di taglio, scale delle durate, tagli massimi al minuto, attesa per i confini di frase;
   - **budget di copertura**: finestra, target Master / Detail / Side e quanto pesa (*guadagno*);
@@ -273,7 +277,83 @@ salva un file `decisions-AAAAMMGG-HHMMSS.jsonl`.
 
 ---
 
-## 9. Calibrare la sincronizzazione (consigliato, una volta)
+## 9. Visione: il regista guarda le camere
+
+![Pagina Visione: occhio veloce e zona del mixer](images/visione.png)
+
+Dalla versione 0.2 il regista **guarda** le camere, oltre ad ascoltare la musica. Lo fa in due modi.
+
+### L'occhio veloce (sempre attivo, nessuna AI)
+
+Più volte al secondo chiede a OBS una piccola istantanea di ogni scena camera. È una richiesta di sola
+lettura: in OBS non cambia nulla, e passa da una connessione separata, quindi non rallenta i tagli.
+
+- **Evita le inquadrature inutilizzabili**: una camera **nera**, **sovraesposta**, **bloccata** (immagine
+  ferma) o **sfocata / coperta** (per esempio qualcuno davanti all'obiettivo) non va in onda. Se lo
+  diventa mentre è in onda, il regista esce entro un secondo. Un flash o lo strobo non contano: il problema
+  deve durare almeno un secondo e mezzo.
+- **Nota il movimento.** Nella tabella vedi, per ogni camera, luce, nitidezza, movimento e quanto
+  l'immagine si muove **a tempo** con la musica (persone che saltano, luci sul beat).
+- **Zona di interesse**: scegli la camera del mixer e trascina un rettangolo attorno al mixer. Il movimento
+  viene misurato solo lì. Conta il **cambiamento**, non la presenza: le mani sempre appoggiate non tengono
+  la regia sul dettaglio, un gesto nuovo sì.
+- **Frequenza di analisi**: *Normale* va bene quasi sempre. *Alta* legge meglio il battito della camera
+  che si apre sul drop. *Bassa* pesa meno su OBS, ma senza lettura del battito.
+
+> In OBS evita l'opzione *Disattiva quando non mostrata* sulle sorgenti camera: una camera disattivata non
+> manda immagini finché non è in onda, e l'occhio veloce non può valutarla.
+
+### L'occhio lento (facoltativo, con un modello AI)
+
+![Pagina Visione: scelta del modello AI](images/visione-ai.png)
+
+Ogni pochi secondi (8 s di default) un modello di intelligenza artificiale guarda **tutte le camere
+insieme** e dice al regista:
+- quali inquadrature sono interessanti in quel momento (il DJ che alza le mani, il pubblico che salta);
+- quali non sono utilizzabili (una camera che inquadra il soffitto);
+- quale camera mostrerebbe meglio il prossimo drop.
+
+Il giudizio **orienta** le scelte per una quindicina di secondi. I tagli restano sul beat, decisi dal
+regista: un modello lento non può far tagliare "in ritardo".
+
+| Scelta | Pro | Contro |
+|---|---|---|
+| **Spento** | Nessun carico in più | Il regista usa solo musica e occhio veloce |
+| **Locale** (Ollama) | Gratis, **offline**, nulla esce dal PC | Serve una scheda video (consigliata NVIDIA da 8 GB); la prima volta va scaricato il modello |
+| **Cloud** (API Claude) | Il giudizio migliore, nessun carico sul PC | Servono internet stabile e una chiave API, ogni sguardo ha un costo, le istantanee vengono inviate ad Anthropic |
+
+**Per usare il modello locale:**
+1. Premi **Scarica Ollama**, installalo (è gratuito) e avvialo.
+2. Torna nella pagina **Visione** e premi **Ricontrolla**.
+3. Scegli un modello e premi **Scarica**. Per ogni modello trovi pro e contro.
+   - Con una **RTX 4060 (8 GB)** è consigliato **Qwen3-VL 4B** (3,3 GB): ottima comprensione, circa
+     1–3 s per sguardo, lascia memoria video a OBS.
+   - Qwen3-VL 2B è più leggero; Qwen3-VL 8B è più preciso ma rischia di rallentare la codifica di OBS
+     su una scheda da 8 GB.
+4. Seleziona **Locale**, poi premi **Salva impostazioni visione**.
+
+Il download richiede internet **una volta sola**: dopo, il modello funziona offline.
+
+**Per usare il cloud:** scegli **Cloud**, il modello (Opus 5.5 consigliato, Sonnet o Haiku costano meno) e
+incolla la tua chiave API, che viene salvata cifrata. Con uno sguardo ogni 8 s sono circa 450 sguardi
+l'ora: controlla i prezzi dell'API prima di una serata lunga.
+
+### Il drop
+
+Durante il **build-up** il regista tiene da parte l'inquadratura del drop e resta su quelle più strette,
+per creare tensione. Quando arriva il drop, **apre** su quell'inquadratura, sul beat. La scegli in
+**Regia › Inquadratura che si apre sul drop** (capitolo 8).
+
+### Hardware DJ (MIDI)
+
+Il pulsante **Avvia sonda MIDI** ascolta per 30 secondi se il tuo controller manda messaggi al PC mentre
+muovi fader e manopole. Con una **Pioneer XDJ-RX3 in standalone**, secondo il manuale non arriva nulla:
+il MIDI esce solo in modalità SOFTWARE CONTROL o con MIXER MODE = MIDI CONTROL. La sonda serve a
+verificarlo in un minuto sul tuo apparecchio.
+
+---
+
+## 10. Calibrare la sincronizzazione (consigliato, una volta)
 
 Tra il momento in cui il programma ordina il cambio e quello in cui vedi l'immagine cambiare passa un
 piccolo ritardo, che dipende da camere e PC. La calibrazione serve a far cadere i tagli esattamente
@@ -294,7 +374,7 @@ Valori tipici: da 40 a 150 ms.
 
 ---
 
-## 10. Come ragiona il regista (in breve)
+## 11. Come ragiona il regista (in breve)
 
 - **Il Master è casa.** Ogni taglio entra su una camera secondaria oppure ne esce, tornando quasi sempre
   al Master. L'ingresso e l'uscita seguono regole diverse.
@@ -315,13 +395,16 @@ Valori tipici: da 40 a 150 ms.
   musicali sul beat successivo. Se il programma non è sicuro del ritmo, non finge precisione.
 - **Niente ping-pong, niente casualità.** Non ripete subito lo stesso inserto. Le durate seguono una
   sequenza deterministica: con la stessa musica e lo stesso seed la regia è identica.
+- **Guarda le camere.** Non manda in onda un'inquadratura nera, ferma, sfocata o coperta, e ne esce
+  subito se lo diventa. Sul drop apre l'inquadratura più ampia, dopo averla tenuta da parte durante il
+  build-up.
 - **Ricontrolla prima di tagliare.** Un cambio in attesa viene annullato se la camera sparisce, se arriva
   un intervento manuale o se il momento non è più adatto.
 - **Rispetta dei limiti**: durata minima, distanza minima tra tagli, numero massimo di tagli al minuto.
 
 ---
 
-## 11. Risoluzione dei problemi
+## 12. Risoluzione dei problemi
 
 | Problema | Soluzione |
 |---|---|
@@ -338,18 +421,23 @@ Valori tipici: da 40 a 150 ms.
 | **Ho cambiato scena a mano e non riprende** | Eri su una scena non gestita: premi **Riprendi** |
 | **Windows non fa partire l'exe** | Vedi l'avviso SmartScreen al capitolo 2 |
 | **Il dispositivo audio non compare** | Ricollega l'USB e premi **Aggiorna** nella pagina Audio |
+| **Visione: "nessuna immagine" per una camera** | In OBS togli *Disattiva quando non mostrata* dalla sorgente camera, oppure verifica che la scena esista |
+| **Una camera buona viene evitata** | Guarda la colonna *Stato* nella pagina **Visione**. Se c'è scritto "sfocata o coperta" per una camera volutamente morbida, disattiva l'analisi o segnala il caso |
+| **Occhio lento: "Ollama non raggiungibile"** | Avvia Ollama (icona vicino all'orologio) e premi **Ricontrolla** |
+| **Occhio lento: "modello non installato"** | Premi **Scarica** accanto al modello scelto |
 
 Se un problema persiste, nella pagina **Decisioni e log** premi **Apri cartella log** e conserva i file
 `dj-director.log` e `decisions-….jsonl`.
 
 ---
 
-## 12. Dove sono i miei dati
+## 13. Dove sono i miei dati
 
 | Cosa | Dove |
 |---|---|
 | Impostazioni | `%APPDATA%\DJDirectorAI\config.json` |
-| Password di OBS (cifrata) | `%APPDATA%\DJDirectorAI\secrets.json` |
+| Password di OBS e chiave API Claude (cifrate) | `%APPDATA%\DJDirectorAI\secrets.json` |
+| Modelli AI locali | gestiti da Ollama (`%USERPROFILE%\.ollama`), rimovibili dalla pagina Visione |
 | Log | `%LOCALAPPDATA%\DJDirectorAI\logs\` |
 
 Se il file delle impostazioni si rovina, il programma ne salva una copia e riparte con i valori
@@ -357,11 +445,16 @@ predefiniti, senza bloccarsi.
 
 ---
 
-## 13. Limiti di questa versione
+## 14. Limiti di questa versione
 
 - È la prima versione: **provala in modalità Shadow** e su un set di prova prima di una serata importante.
 - Il riconoscimento di breakdown e drop è affidabile sulla musica con cassa regolare; su generi
   irregolari il programma è più prudente e taglia soprattutto in base alla durata delle inquadrature.
-- Il programma non "vede" ancora le camere: non sa se il DJ è inquadrato o se una camera è nera
-  (previsto per la versione 0.2).
+- L'occhio veloce misura immagini, non capisce il contenuto: sa che una camera è nera, ferma, sfocata o
+  che qualcosa si muove, non *chi* si muove. La nitidezza è confrontata con quella abituale della camera:
+  una camera sfocata fin dall'accensione non viene riconosciuta come tale.
+- La lettura "a tempo" ha bisogno di almeno 5–6 istantanee al secondo della stessa camera: è affidabile
+  solo per la camera del drop e non con la frequenza *Bassa*.
+- L'occhio lento (modello AI) è stato verificato nel codice e con server di prova, non ancora su serate
+  reali: valuta i suoi giudizi in modalità Shadow.
 - Le funzioni che riguardano il "downbeat" (inizio battuta) e le frasi musicali sono stime, non certezze.

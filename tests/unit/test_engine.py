@@ -38,10 +38,12 @@ def snap(t, state=MusicState.STABLE_GROOVE, beat_conf=0.9, db_conf=0.0, since=0.
     return MusicSnapshot(t, state, 0.8, since, MusicState.STABLE_GROOVE, FEAT, beat, (), 0, True)
 
 
-def make(n=3, preset="natural", seed=1, cams_over=None, visual=None, **settings):
+def make(n=3, preset="natural", seed=1, cams_over=None, visual=None, issue=None, hint=None, params=None,
+         **settings):
     reg = CameraRegistry.from_configs(cams(n, **(cams_over or {})))
-    return DirectorEngine(reg, PRESETS[preset], EngineSettings(**settings), seed=seed,
-                          visual_activity=visual)
+    p = dataclasses.replace(PRESETS[preset], **(params or {}))
+    return DirectorEngine(reg, p, EngineSettings(**settings), seed=seed, visual_activity=visual,
+                          visual_issue=issue, reveal_hint=hint)
 
 
 def run(engine, seconds, state_fn=None, beat_conf=0.9, events_fn=None, dt=0.05, start=0.0):
@@ -262,7 +264,7 @@ def test_presets_change_pace():
 
 # ----------------------------------------------------------------------------- musical opportunities
 def test_reentry_triggers_entry_after_master_minimum():
-    e = make(4)
+    e = make(4, params={"drop_reveal": False})
     e.tick(0, snap(0))
     run(e, 14, start=0.05)                     # past the master minimum (12 s), before the preferred dwell
     assert e.current == "M"
@@ -283,7 +285,7 @@ def test_low_confidence_event_is_ignored():
 
 
 def test_drop_returns_from_detail_to_master_early():
-    e = make(3)
+    e = make(3, params={"drop_reveal": False})
     e.tick(0, snap(0))
     e.force("D", 1.0, "test")
     run(e, 5.5, start=1.05)                    # detail minimum is 5 s
@@ -293,6 +295,90 @@ def test_drop_returns_from_detail_to_master_early():
              start=6.6)
     sw = switches(ds)
     assert sw and sw[0].candidate_camera == "M" and sw[0].reason.startswith("exit: reentry")
+
+
+# ----------------------------------------------------------------------------- drop grammar (0.2)
+def _drop_on_master(e, t_drop=14.0, conf=0.9):
+    e.tick(0, snap(0))
+    run(e, t_drop, start=0.05)
+    ev = MusicEvent(t_drop, "reentry", conf)
+    return run(e, 3, state_fn=lambda t: MusicState.REENTRY, events_fn=lambda t: (ev,) if t == t_drop else (),
+               start=t_drop)
+
+
+def test_drop_opens_on_the_reveal_shot_on_the_beat():
+    e = make(4)                                # no WIDE: automatic reveal = BEHIND
+    assert e.reveal_camera().name == "B"
+    ds = _drop_on_master(e)
+    sw = switches(ds)
+    assert sw and sw[0].candidate_camera == "B" and sw[0].reason.startswith("entry: drop reveal on B")
+    assert sw[0].timing in (TimingMode.BEAT, TimingMode.DOWNBEAT)
+
+
+def test_drop_reveal_uses_the_chosen_scene():
+    e = make(4, drop_scene="S")
+    sw = switches(_drop_on_master(e))
+    assert sw and sw[0].candidate_camera == "S"
+
+
+def test_drop_reveal_follows_the_slow_eye_hint_when_no_scene_is_chosen():
+    e = make(4, hint=lambda: "S")
+    assert e.reveal_camera().name == "S"
+    e2 = make(4, hint=lambda: "S", drop_scene="B")
+    assert e2.reveal_camera().name == "B"           # an explicit choice wins
+
+
+def test_drop_from_a_detail_insert_opens_on_the_reveal():
+    e = make(4)
+    e.tick(0, snap(0))
+    e.force("D", 1.0, "test")
+    run(e, 3.0, start=1.05)                    # past half the detail minimum
+    ev = MusicEvent(4.1, "reentry", 0.9)
+    ds = run(e, 2, state_fn=lambda t: MusicState.REENTRY, events_fn=lambda t: (ev,) if t == 4.1 else (),
+             start=4.1)
+    sw = switches(ds)
+    assert sw and sw[0].candidate_camera == "B" and sw[0].reason.startswith("exit: drop reveal on B")
+
+
+def test_reveal_shot_is_held_back_during_the_build_up():
+    e = make(4)
+    ds = run(e, 900, state_fn=lambda t: MusicState.INCREASING)
+    entries = [d for d in switches(ds) if d.reason.startswith("entry")]
+    assert entries and all(d.candidate_camera != "B" for d in entries)
+
+
+# ----------------------------------------------------------------------------- visual veto (0.2)
+def test_vetoed_camera_is_never_chosen():
+    e = make(4, issue=lambda cam: "black frame" if cam.name == "S" else "")
+    ds = run(e, 1200)
+    assert all(d.candidate_camera != "S" for d in switches(ds))
+    assert len(switches(ds)) > 10
+
+
+def test_vetoed_shot_on_air_is_left_quickly():
+    bad = {"v": ""}
+    e = make(3, issue=lambda cam: bad["v"] if cam.name == "S" else "")
+    e.tick(0, snap(0))
+    e.force("S", 1.0, "test")
+    run(e, 2.0, start=1.05)
+    bad["v"] = "frozen image"
+    ds = run(e, 3.0, start=3.05)
+    sw = switches(ds)
+    assert sw and sw[0].candidate_camera == "M" and "shot unusable (frozen image)" in sw[0].reason
+    assert sw[0].t - 3.05 <= 1.5
+
+
+def test_unusable_master_is_avoided_until_it_recovers():
+    bad = {"v": "blurred or blocked"}
+    e = make(4, issue=lambda cam: bad["v"] if cam.name == "M" else "")
+    e.tick(0, snap(0))
+    ds = run(e, 60, start=0.05)
+    sw = switches(ds)
+    assert sw and sw[0].reason.startswith("entry: master shot unusable")
+    assert all(d.candidate_camera != "M" for d in sw)
+    bad["v"] = ""
+    ds = run(e, 60, start=60.05)
+    assert any(d.candidate_camera == "M" for d in switches(ds))
 
 
 # ----------------------------------------------------------------------------- visual novelty

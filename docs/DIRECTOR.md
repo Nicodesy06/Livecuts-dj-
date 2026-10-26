@@ -107,8 +107,9 @@ non si ripetono e non sono casuali.
 - **Presenza continua** (le mani appoggiate sul mixer): la novità torna a zero in pochi secondi. Quindi
   **non** è un trigger persistente e **non** può allungare un Detail.
 - **Picco**: genera un evento visivo con TTL di 3 s, poi un periodo refrattario di 15 s per quella camera.
-- **Senza analisi video** (`NullVisualAnalyzer`, la situazione attuale): `activity()` restituisce `None`.
-  La novità resta 0 e il regista lavora solo su musica e budget.
+- **Da dove arriva l'attività** (v0.2): dall'occhio veloce, cioè il movimento misurato nelle istantanee
+  della camera, solo dentro la **zona di interesse** se è impostata (per esempio il mixer). Senza
+  immagini l'attività è `None`, la novità resta 0 e il regista lavora solo su musica e budget.
 
 ## Exit Decision (su una secondaria)
 
@@ -124,8 +125,13 @@ L'uscita dipende soprattutto dalla **durata**.
    `pref_max`. **Mai oltre.**
 3. **Hard cap**: limite di sicurezza assoluto. L'uscita viene programmata in modo da cadere entro il
    tetto: un cambio in attesa non lo supera mai, e senza un beat utile il taglio è immediato.
-4. **Drop (re-entry)**: riporta presto al Master, appena superata la durata minima.
-5. **Destinazione**: il Master. Fa eccezione il *chaining* (secondaria → secondaria), possibile solo se:
+4. **Drop (re-entry)**: apre sulla camera di rivelazione (vedi *Grammatica del drop*) già a metà della
+   durata minima. Senza camera di rivelazione riporta presto al Master. Se l'inquadratura in onda è già
+   la rivelazione, resta.
+5. **Veto visivo**: se l'immagine in onda diventa inutilizzabile, l'uscita arriva entro 1 s (sul beat se
+   possibile). Se è il Master a essere inutilizzabile, il regista resta sugli insert finché non torna
+   buono.
+6. **Destinazione**: il Master. Fa eccezione il *chaining* (secondaria → secondaria), possibile solo se:
    - il Master è oltre il target di almeno 5 punti;
    - un'altra classe è in deficit;
    - il fit musicale è sufficiente;
@@ -135,6 +141,60 @@ L'uscita dipende soprattutto dalla **durata**.
 
 Anche l'uscita cade sul downbeat o sul beat, senza attendere la frase. Ha una scadenza (`deadline`)
 che non supera mai il tetto.
+
+## Consapevolezza della scena (v0.2)
+
+Codice: `src/dj_director/visual/`. Le immagini arrivano da OBS (`GetSourceScreenshot`, una richiesta di
+sola lettura) su una **seconda connessione**: le istantanee non rallentano mai i cambi di scena.
+
+**Occhio veloce** (sempre locale, nessun modello AI), su istantanee 384×216 ridotte a 128 px:
+
+| Misura | Come | Effetto |
+|---|---|---|
+| Nera / buia | luminosità media < 5% | **veto** |
+| Sovraesposta | > 60% dei pixel saturi | **veto** |
+| Bloccata | fotogrammi identici bit per bit per 4 s | **veto** |
+| Sfocata o coperta | nitidezza (laplaciano) < 35% del riferimento *della camera stessa* | **veto** |
+| Movimento | differenza tra fotogrammi, nella zona di interesse se impostata | attività → novità visiva |
+| A tempo | concentrazione di fase del movimento (al beat e al mezzo beat) e della luminosità (luci) sul periodo del beat, corretta per il caso | piccolo bonus nel punteggio (+0.25 al massimo) |
+
+- Un problema deve **durare 1.5 s** per diventare veto (un flash o uno strobo non lo sono) e sparisce dopo
+  1 s di immagini buone.
+- Una camera senza immagini recenti (3 s) non dà informazioni: **mai** un veto per mancanza di dati.
+- La nitidezza è relativa alla camera: si accorge di una camera che **perde** il fuoco o viene coperta,
+  non di una che è sfocata fin dall'inizio.
+- Budget di istantanee: 5 / 10 / 16 al secondo (Bassa / Normale / Alta). Il 60% va alla camera di
+  rivelazione, così la sua lettura del beat ha abbastanza campioni (6 al secondo a Normale). A Bassa la
+  lettura del beat non è possibile.
+
+**Occhio lento** (facoltativo): ogni `judge_interval` secondi (8 s) un modello visivo riceve **un solo
+mosaico numerato** di tutte le camere e il contesto musicale (stato, BPM, camera in onda, tempo
+dall'ultimo drop). Risponde in JSON validato con uno schema:
+
+- `usable` / `issue`: un'inquadratura non utilizzabile (puntata sul soffitto, persona davanti) diventa un
+  **veto** ("AI: …");
+- `interest` 0–1: entra nel punteggio di scelta della camera come `0.6 × (interesse − 0.4)`;
+- `drop_pick`: la camera migliore per rivelare il prossimo drop, se l'utente non ne ha scelta una.
+
+Il giudizio vale per `max(15 s, 2 × intervallo)` e poi scade: **orienta** le scelte, non decide mai il
+momento del taglio, che resta sul beat. Un errore del modello (non avviato, rete assente, risposta non
+valida) fa solo aspettare di più prima del tentativo successivo: il regista continua senza.
+
+| Fornitore | Dove gira | Note |
+|---|---|---|
+| Locale (Ollama) | su questo PC, offline | modelli scaricabili dalla pagina Visione; consigliato Qwen3-VL 4B (3.3 GB) per una RTX 4060 |
+| Cloud (API Claude) | online | SDK ufficiale `anthropic`; modello predefinito Claude Opus 5.5 con fallback lato server; le istantanee lasciano il PC |
+
+## Grammatica del drop (v0.2)
+
+- **Camera di rivelazione**, nell'ordine: la scena scelta in *Regia › Inquadratura che si apre sul drop*;
+  altrimenti il suggerimento dell'occhio lento; altrimenti la camera più larga tra WIDE, BEHIND, SIDE e
+  CUSTOM. Con l'opzione *Spenta* (`drop_reveal = false`) il drop torna al Master come in 0.1.3.
+- **Build-up** (stato *Attività in aumento*): la rivelazione viene **tenuta da parte**, cioè non usata
+  come insert se ci sono alternative. La tensione resta sulle inquadrature strette.
+- **Drop**: taglio sulla rivelazione sul beat successivo, dal Master oppure da un insert (già a metà della
+  sua durata minima). Il cooldown non si applica, basta che la camera non sia stata in onda negli ultimi
+  3 s. Poi la rivelazione esce come ogni insert: durata pianificata, tetto, ritorno al Master.
 
 ## Rivalidazione
 

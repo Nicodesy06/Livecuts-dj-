@@ -47,6 +47,12 @@ def test_dynamic_labels_translated():
     dynamic = ([v[0] for v in PARAM_LABELS.values()] + [n for _, n in METRIC_ROWS] + CamerasPage.COLS
                + list(KIND_LABEL.values()) + list(PRESET_DESCRIPTIONS.values()) + [h for h in _HINTS.values() if h]
                + ["Minimal", "Natural", "Dynamic", "connected", "connecting", "disconnected", "auth_failed"])
+    from dj_director.ui.vision_page import ISSUE_LABELS, RATE_LABELS, VisionPage
+    from dj_director.visual.providers import CLOUD_MODELS, LOCAL_MODELS
+    dynamic += (VisionPage.COLS + list(RATE_LABELS.values()) + list(ISSUE_LABELS.values())
+                + [m.pros for m in LOCAL_MODELS + CLOUD_MODELS] + [m.cons for m in LOCAL_MODELS + CLOUD_MODELS]
+                + ["Off", "Local (offline, on this PC)", "Cloud (online, Claude API)", "Vision",
+                   "MIDI inputs found but none could be opened (in use by another program?)."])
     assert [k for k in dynamic if k not in IT] == []
 
 
@@ -97,8 +103,21 @@ def test_all_engine_reasons_translate(synth_124):
     e = make(3, cams_over={"D": {"allowed_states": ["stable_groove"]}, "S": {"allowed_states": ["stable_groove"]}})
     run(e, 40)
     reasons |= {d.reason for d in run(e, 60, state_fn=lambda t: MusicState.SPARSE, start=40.0)}
+    # 0.2 scenarios: drop reveal (entry and exit), quality veto on air and on the master
+    for start_on in (None, "D"):
+        e = make(4)
+        e.tick(0, snap(0))
+        if start_on:
+            e.force(start_on, 1.0, "test")
+        ev = MusicEvent(14.0 if not start_on else 4.0, "reentry", 0.9)
+        reasons |= {d.reason for d in run(e, 20, events_fn=lambda t, ev=ev: (ev,) if t == ev.t else (),
+                                          start=1.05)}
+    for issue in ("black frame", "frozen image", "AI: camera pointing at the ceiling"):
+        e = make(4, issue=lambda cam, i=issue: i if cam.name in ("M", "S") else "")
+        reasons |= {d.reason for d in run(e, 60)}
     bad = {f for r in reasons for f in untranslated_fragments(r)}
     assert not bad, bad
+    assert "rivelazione sul drop" in tr_reason("entry: drop reveal on Cam Wide (0.90)")
     assert "inquadratura" in tr_reason("shot length 30s of ~32s planned")
 
 

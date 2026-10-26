@@ -3,6 +3,48 @@
 Tutte le modifiche rilevanti di DJ Director AI. Formato ispirato a
 [Keep a Changelog](https://keepachangelog.com/it/1.1.0/); versioni [SemVer](https://semver.org/lang/it/).
 
+## [0.2.0] — 2026-10-26
+
+### Aggiunto — il regista guarda le camere
+- **Occhio veloce** (sempre locale, senza AI):
+  - legge piccole istantanee di ogni scena camera da OBS con `GetSourceScreenshot`, una richiesta di sola
+    lettura, su una seconda connessione che non rallenta i tagli;
+  - riconosce camere **nere**, **sovraesposte**, **bloccate** e **sfocate o coperte** (rispetto alla
+    nitidezza abituale della camera). Una camera così non va in onda; se lo diventa mentre è in onda, il
+    regista esce entro 1 s;
+  - un flash o uno strobo non bastano: il problema deve durare 1,5 s.
+- **Movimento e zona di interesse**: misura il movimento di ogni camera, anche solo dentro un rettangolo
+  disegnato sull'immagine (per esempio il mixer). Alimenta la novità visiva della 0.1.3: conta il gesto
+  nuovo, non le mani ferme.
+- **A tempo**: riconosce movimento e luci che pulsano con il beat. È un piccolo bonus nella scelta della
+  camera.
+- **Occhio lento** (facoltativo):
+  - un modello visivo riceve ogni pochi secondi un mosaico numerato di tutte le camere con il contesto
+    musicale;
+  - risponde in JSON validato: interesse, inquadrature da evitare, camera migliore per il drop;
+  - il giudizio orienta le scelte per circa 15 s e i tagli restano sul beat.
+  - **Locale** con Ollama (offline): pagina con i modelli consigliati, pro e contro, download con
+    avanzamento e rimozione. Consigliato Qwen3-VL 4B per una RTX 4060.
+  - **Cloud** con l'API Claude (SDK ufficiale `anthropic`, chiave salvata cifrata).
+- **Grammatica del drop**:
+  - scegli l'inquadratura che si apre sul drop (una qualsiasi scena; automatica o spenta);
+  - durante il build-up il regista la tiene da parte, sul drop la apre sul beat, anche partendo da un
+    insert.
+- **Sonda MIDI**: verifica in 30 s se il controller invia messaggi al PC. Una Pioneer XDJ-RX3 in
+  standalone, secondo il manuale, non ne invia.
+- Nuova pagina **Visione**; in Dashboard compaiono la camera del drop, le camere viste o evitate e la nota
+  dell'occhio lento.
+- `selftest` verifica anche codec JPEG, analisi visiva e SDK cloud nell'eseguibile.
+
+### Cambiato
+- Con il drop a *Spenta*, il comportamento è quello della 0.1.3: il drop riporta al Master.
+
+### Compatibilità
+- Le configurazioni 0.1.x si caricano senza modifiche: la sezione `vision` prende i valori predefiniti e
+  l'occhio lento parte spento.
+- OBS: l'unica richiesta nuova è `GetSourceScreenshot`, di sola lettura. Le altre e la gestione di
+  Studio Mode e degli interventi manuali sono invariate.
+
 ## [0.1.3] — 2026-10-26
 
 ### Cambiato — Director Engine

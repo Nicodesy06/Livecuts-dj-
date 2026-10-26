@@ -561,6 +561,8 @@ class DirectorPage(QWidget):  # noqa: D101
         f.addRow(tr("Manual override duration"), self.override_s)
         f.addRow(tr("When the audio signal is lost"), self.nosig)
         f.addRow(tr("Sync offset (send cut earlier by)"), self.offset)
+        self.drop = QComboBox()
+        f.addRow(tr("Shot opened on the drop"), self.drop)
         f.addRow(tr("Random seed (fixed = reproducible)"), self.seed)
         self.lang = QComboBox()
         self.lang.addItem(tr("Automatic"), "auto")
@@ -664,6 +666,15 @@ class DirectorPage(QWidget):  # noqa: D101
         self.lang.setCurrentIndex(max(0, self.lang.findData(self.ctrl.config.ui_language)))
         self.adv.setChecked(bool(d.overrides))
         self._show_params(keep_overrides=True)
+        self.drop.clear()
+        self.drop.addItem(tr("Automatic (wide / behind / side, or the AI's pick)"), "")
+        self.drop.addItem(tr("Off (a drop returns to the master)"), "__off__")
+        for c in self.ctrl.config.cameras:
+            if c.enabled and not c.is_master:
+                self.drop.addItem(c.scene_name, c.scene_name)
+        reveal_on = dataclasses.replace(PRESETS.get(d.preset, PRESETS["natural"]), **d.overrides).drop_reveal
+        key = d.drop_scene if reveal_on else "__off__"
+        self.drop.setCurrentIndex(max(0, self.drop.findData(key)))
         names = [c.scene_name for c in self.ctrl.config.cameras if c.enabled]
         for i, combo in enumerate((self.cal_a, self.cal_b)):
             combo.clear()
@@ -712,6 +723,12 @@ class DirectorPage(QWidget):  # noqa: D101
                 d.overrides["phrase_sync"] = self.phrase.isChecked()
             if self.editorial.isChecked() != base.editorial_cuts:
                 d.overrides["editorial_cuts"] = self.editorial.isChecked()
+        drop = self.drop.currentData()
+        if drop == "__off__":
+            d.overrides["drop_reveal"] = False
+            d.drop_scene = ""
+        else:
+            d.drop_scene = drop or ""
         self.ctrl.apply_config(cfg)
 
     def refresh(self, s: AppSnapshot) -> None:

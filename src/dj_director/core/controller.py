@@ -47,11 +47,12 @@ from dj_director.director.cameras import CameraRegistry
 from dj_director.director.engine import DirectorEngine, EngineSettings
 from dj_director.music.analyzer import AnalysisWorker
 from dj_director.obs.controller import ObsController, SceneInfo
-from dj_director.visual.interface import NullVisualAnalyzer
+from dj_director.visual.vision import VisionService, VisionStatus
 
 log = logging.getLogger(__name__)
 TICK = 0.05
 SECRET_KEY = "obs_password"
+CLAUDE_KEY = "claude_api_key"
 
 
 class DirectorStatus(str, Enum):
@@ -92,6 +93,8 @@ class AppSnapshot:
     cuts_last_minute: int
     override_active: bool
     coverage: tuple = ()               # ((class, share, target), ...) over the sliding window
+    vision: Optional[VisionStatus] = None
+    reveal_camera: Optional[str] = None
 
 
 class AppController:
@@ -101,10 +104,16 @@ class AppController:
         self.secrets = secrets or SecretStore(self.config_manager.path.parent)
         self.config: AppConfig = self.config_manager.load()
         register_secret(self.secrets.get(SECRET_KEY))
+        register_secret(self.secrets.get(CLAUDE_KEY))
         self.audio = AudioInputManager(self.config.audio, self.config.analysis.silence_db)
         self.analysis = AnalysisWorker(self.audio, self.config.analysis)
         self.obs = ObsController(self.config.obs, lambda: self.secrets.get(SECRET_KEY))
-        self.visual = NullVisualAnalyzer()
+        self.vision = VisionService(
+            self.config, lambda: self.secrets.get(SECRET_KEY), lambda: self.secrets.get(CLAUDE_KEY),
+            cameras=lambda: [(c.scene_name, c.role.value) for c in list(self.config.cameras) if c.enabled],
+            context=self._vision_context, priority=self._reveal_name,
+            language=self.config.ui_language if self.config.ui_language in ("it", "en") else "en")
+        self.visual = self.vision
         self.decision_log = DecisionLog(enabled=self.config.log_decisions)
         self.decisions: deque[DirectorDecisionEvent] = deque(maxlen=300)
         self.status = DirectorStatus.OFF
@@ -134,11 +143,30 @@ class AppController:
                                   latency_offset=d.latency_offset_ms / 1000.0,
                                   override_policy=d.override_policy,
                                   override_seconds=d.override_seconds,
-                                  no_signal_policy=d.no_signal_policy)
+                                  no_signal_policy=d.no_signal_policy,
+                                  drop_scene=d.drop_scene)
         seed = d.seed or int(time.time())
         return DirectorEngine(self.registry, resolve_params(d), settings, seed=seed,
                               visual_fit=lambda cam: self.visual.score(cam.name) or 0.0,
-                              visual_activity=lambda cam: self.visual.activity(cam.name))
+                              visual_activity=lambda cam: self.visual.activity(cam.name),
+                              visual_issue=lambda cam: self.visual.issue(cam.name),
+                              reveal_hint=self.visual.reveal_hint)
+
+    def _vision_context(self) -> dict:
+        snap = self.analysis.latest()
+        e = self.engine
+        now = time.monotonic()
+        return {"state": snap.state.label if snap else "unknown",
+                "bpm": snap.beat.bpm if snap else 0.0,
+                "on_air": e.current,
+                "since_drop": now - e.phrase_anchor if e.phrase_anchor else None}
+
+    def _reveal_name(self) -> Optional[str]:
+        try:
+            rc = self.engine.reveal_camera()
+        except Exception:
+            return None
+        return rc.name if rc is not None else None
 
     def start_services(self) -> None:
         """Start audio capture/analysis and OBS connection (director stays OFF)."""
@@ -146,6 +174,7 @@ class AppController:
         self.analysis.start()
         if self.config.obs.auto_connect:
             self.obs.start()
+            self.vision.start()
         self._stop.clear()
         self._thread = threading.Thread(target=self._run, name="director", daemon=True)
         self._thread.start()
@@ -155,6 +184,7 @@ class AppController:
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=2)
+        self.vision.stop()
         self.analysis.stop()
         self.audio.stop()
         self.obs.stop()
@@ -170,6 +200,15 @@ class AppController:
     def get_password(self) -> str:
         return self.secrets.get(SECRET_KEY)
 
+    def set_claude_key(self, key: str) -> None:
+        self.secrets.set(CLAUDE_KEY, key)
+        register_secret(key)
+        if self.config.vision.judge_provider == "cloud":
+            self.vision.restart_judge()
+
+    def has_claude_key(self) -> bool:
+        return bool(self.secrets.get(CLAUDE_KEY))
+
     def apply_config(self, cfg: AppConfig, restart_audio: bool = False, reconnect_obs: bool = False) -> None:
         """Apply a new configuration from the UI (thread-safe)."""
         with self._lock:
@@ -178,6 +217,10 @@ class AppController:
             self.decision_log.enabled = cfg.log_decisions
         self.save_config()
         self._post("rebuild")
+        if cfg.obs.auto_connect:
+            self.vision.reconfigure(cfg)
+        else:
+            self.vision.stop()
         if restart_audio:
             self.audio.silence_db = cfg.analysis.silence_db
             self.analysis.cfg = cfg.analysis
@@ -315,6 +358,12 @@ class AppController:
                         self.engine.current = new
                     if old in self.engine._novelty:
                         self.engine._novelty[new] = self.engine._novelty.pop(old)
+                    if old in self.config.vision.rois:
+                        self.config.vision.rois[new] = self.config.vision.rois.pop(old)
+                    if self.config.director.drop_scene == old:
+                        self.config.director.drop_scene = new
+                        self.engine.s.drop_scene = new
+                    self.vision.rename(old, new)
                     for s in self.engine.history:
                         if s.camera == old:
                             s.camera = new
@@ -373,6 +422,7 @@ class AppController:
             self._set_status(DirectorStatus.SHADOW, "decisions are logged, OBS is not commanded")
         snap = self.analysis.latest()
         events = self.analysis.drain_events()
+        self.vision.set_beat_period(snap.beat.period if snap is not None else 0.0)
         t0 = time.perf_counter()
         prev = self.engine.current
         d = self.engine.tick(now, snap, events)
@@ -447,7 +497,9 @@ class AppController:
             preset=self.config.director.preset,
             cuts_last_minute=sum(1 for t in e.cut_times if now - t < 60),
             override_active=now < e.override_until,
-            coverage=self._coverage(now))
+            coverage=self._coverage(now),
+            vision=self.vision.status(),
+            reveal_camera=self._reveal_name())
 
     def _coverage(self, now: float) -> tuple:
         e = self.engine

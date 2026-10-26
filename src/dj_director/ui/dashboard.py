@@ -270,6 +270,19 @@ class DashboardPage(QWidget):
                 f"{names[k]} {share * 100:.0f}%/{target * 100:.0f}%" for k, share, target in s.coverage))
         else:
             self.coverage.setText("")
+        vis = []
+        if s.reveal_camera:
+            vis.append(tr("drop → {0}").format(s.reveal_camera))
+        if s.vision is not None and s.vision.enabled:
+            bad = [c.name for c in s.vision.cameras if c.issue]
+            seen = sum(1 for c in s.vision.cameras if c.has_frame and c.age <= 3)
+            vis.append(tr("vision: {0}/{1} cameras seen").format(seen, len(s.vision.cameras)))
+            if bad:
+                vis.append(tr("avoided: {0}").format(", ".join(bad)))
+            if s.vision.judge is not None and s.vision.judge.note:
+                vis.append(tr("AI: {0}").format(s.vision.judge.note))
+        if vis:
+            self.coverage.setText(self.coverage.text() + ("\n" if self.coverage.text() else "") + " · ".join(vis))
         if s.last_switch:
             self.last_reason.setText(tr("Last cut → {0}: {1}").format(s.last_switch.candidate_camera, tr_reason(s.last_switch.reason)))
         else:

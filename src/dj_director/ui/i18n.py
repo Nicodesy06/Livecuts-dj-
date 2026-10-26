@@ -86,6 +86,14 @@ _STATE_LOWER_IT = {s.label.lower(): v.lower() for s, v in STATE_IT.items()}
 _CLASS_IT = {"master": "master", "detail": "detail", "side": "laterali"}
 
 
+_ISSUE_IT = {"black frame": "nera / buia", "overexposed": "sovraesposta", "frozen image": "immagine bloccata",
+             "blurred or blocked": "sfocata o coperta"}
+
+
+def _issue_it(issue: str) -> str:
+    return _ISSUE_IT.get(issue, issue)
+
+
 def _ev(m: re.Match, g: str = "k") -> str:
     return _EVENT_IT.get(m.group(g), m.group(g))
 
@@ -105,6 +113,10 @@ _REASONS_IT: list[tuple[str, object]] = [
     (r"(master|detail|side) coverage (\d+)%/(\d+)%",
      lambda m: f"copertura {_CLASS_IT[m.group(1)]} {m.group(2)}%/{m.group(3)}%"),
     (r"exit: hard cap (\d+)s", r"uscita: limite massimo \1 s"),
+    (r"entry: drop reveal on (.+) \(([\d.]+)\)", r"ingresso: rivelazione sul drop su \1 (\2)"),
+    (r"exit: drop reveal on (.+) \(([\d.]+)\)", r"uscita: rivelazione sul drop su \1 (\2)"),
+    (r"entry: master shot unusable \((.+)\)", lambda m: f"ingresso: master non utilizzabile ({_issue_it(m.group(1))})"),
+    (r"exit: shot unusable \((.+)\)", lambda m: f"uscita: inquadratura non utilizzabile ({_issue_it(m.group(1))})"),
     (r"exit: (?P<k>reentry|transition|sparse start) \((?P<c>[\d.]+)\)",
      lambda m: f"uscita: {_ev(m)} ({m.group('c')})"),
     (r"insert (\d+)s of ~(\d+)s planned \(preferred (\d+)-(\d+)s\)",
@@ -507,4 +519,134 @@ IT: dict[str, str] = {
     "Editorial inserts also in stable music (on musical boundaries)":
         "Inserti editoriali anche con musica stabile (sui confini musicali)",
     "Coverage (sliding window): ": "Copertura (finestra mobile): ",
+    # ---- 0.2 scene awareness
+    "Vision": "Visione",
+    "Scene awareness. The fast eye looks at small stills of every camera scene (read from OBS, nothing is changed "
+    "there): it avoids black, frozen, blurred or blocked shots and notices movement. The slow eye, optional, is an AI "
+    "model that looks at all cameras every few seconds and tells the director what is interesting.":
+        "Consapevolezza della scena. L'occhio veloce guarda piccole istantanee di ogni scena camera (lette da OBS, "
+        "senza modificare nulla): evita inquadrature nere, bloccate, sfocate o coperte e nota il movimento. "
+        "L'occhio lento, facoltativo, è un modello di intelligenza artificiale che ogni pochi secondi guarda tutte "
+        "le camere e dice al regista cosa c'è di interessante.",
+    "Fast eye (always local, no AI)": "Occhio veloce (sempre in locale, senza AI)",
+    "Analyse the cameras (quality veto, movement, mixer region)":
+        "Analizza le camere (veto qualità, movimento, zona del mixer)",
+    "Analysis rate": "Frequenza di analisi",
+    "Low (5 stills/s, lightest for OBS; no beat reading)":
+        "Bassa (5 istantanee/s, la più leggera per OBS; niente lettura del beat)",
+    "Normal (10 stills/s)": "Normale (10 istantanee/s)",
+    "High (16 stills/s, best beat reading)": "Alta (16 istantanee/s, migliore lettura del beat)",
+    "Camera": "Camera", "Picture": "Immagine", "Light": "Luce", "Sharpness": "Nitidezza",
+    "Movement": "Movimento", "On the beat": "A tempo", "State": "Stato",
+    "Region of interest: select a camera, then drag a rectangle on its picture (e.g. around the mixer in the Detail "
+    "shot). Movement is measured only there; novelty, not mere presence, can call the shot.":
+        "Zona di interesse: scegli una camera e trascina un rettangolo sulla sua immagine (per esempio attorno al "
+        "mixer nella camera Detail). Il movimento viene misurato solo lì; può richiamare l'inquadratura solo una "
+        "novità, non la semplice presenza.",
+    "Use the whole picture": "Usa tutta l'inquadratura",
+    "No picture yet from OBS": "Ancora nessuna immagine da OBS",
+    "Slow eye (AI model looking at the cameras)": "Occhio lento (modello AI che guarda le camere)",
+    "Off": "Spento", "Local (offline, on this PC)": "Locale (offline, su questo PC)",
+    "Cloud (online, Claude API)": "Cloud (online, API Claude)",
+    "Look every": "Guarda ogni",
+    "The verdict guides the next choices for about two looks; cuts stay on the beat.":
+        "Il giudizio orienta le scelte successive per circa due sguardi; i tagli restano sul beat.",
+    "Local models (Ollama)": "Modelli locali (Ollama)",
+    "Download Ollama": "Scarica Ollama", "Check again": "Ricontrolla",
+    "Ollama runs AI models on this PC: nothing leaves the computer and no internet is needed during the show (only to "
+    "download a model once). With an NVIDIA RTX 4060 (8 GB) the recommended model leaves enough video memory to OBS.":
+        "Ollama esegue i modelli AI su questo PC: nulla esce dal computer e durante la serata non serve internet "
+        "(solo una volta, per scaricare il modello). Con una NVIDIA RTX 4060 (8 GB) il modello consigliato lascia "
+        "a OBS memoria video sufficiente.",
+    " · recommended": " · consigliato",
+    "Pros: ": "Pro: ", "Cons: ": "Contro: ",
+    "Download": "Scarica", "Remove": "Rimuovi",
+    "Cloud model (Claude API)": "Modello cloud (API Claude)",
+    "Model": "Modello", "API key": "Chiave API",
+    "Pros: the best judgement of the scene, no load on this PC. Cons: needs a stable internet connection during the "
+    "show, an API key and has a cost per look (with one look every 8 s about 450 looks per hour); the camera stills "
+    "are sent to Anthropic.":
+        "Pro: il giudizio migliore sulla scena, nessun carico su questo PC. Contro: serve una connessione internet "
+        "stabile durante la serata e una chiave API, e ogni sguardo ha un costo (con uno sguardo ogni 8 s sono circa "
+        "450 sguardi l'ora); le istantanee delle camere vengono inviate ad Anthropic.",
+    "The 'anthropic' package is missing in this installation.":
+        "In questa installazione manca il pacchetto 'anthropic'.",
+    "DJ hardware (MIDI)": "Hardware DJ (MIDI)",
+    "Does your controller tell the PC what you touch? Connect it via USB, press the button and move faders and knobs "
+    "for 30 seconds. Pioneer XDJ-RX3: in standalone mode it normally sends nothing (MIDI only in SOFTWARE CONTROL or "
+    "MIXER MODE = MIDI CONTROL).":
+        "Il tuo controller dice al PC cosa tocchi? Collegalo via USB, premi il pulsante e muovi fader e manopole per "
+        "30 secondi. Pioneer XDJ-RX3: in standalone di norma non invia nulla (il MIDI c'è solo in SOFTWARE CONTROL o "
+        "con MIXER MODE = MIDI CONTROL).",
+    "Run MIDI probe (30 s)": "Avvia sonda MIDI (30 s)",
+    "Save vision settings": "Salva impostazioni visione",
+    "key saved (encrypted)": "chiave salvata (cifrata)",
+    "Download the chosen model first (button Download).": "Prima scarica il modello scelto (pulsante Scarica).",
+    "Enter a Claude API key to use the cloud model.": "Inserisci una chiave API Claude per usare il modello cloud.",
+    "Checking Ollama…": "Controllo Ollama…",
+    "Ollama {0} is running on this PC.": "Ollama {0} è attivo su questo PC.",
+    "Ollama is not installed or not running. Install it (free), start it, then press Check again.":
+        "Ollama non è installato o non è avviato. Installalo (è gratuito), avvialo e premi Ricontrolla.",
+    "installed": "installato", "not installed": "non installato",
+    "Download model": "Scarica modello",
+    "Download {0} ({1:.1f} GB) with Ollama?\n\nPros: {2}\nCons: {3}\n\nThe download needs internet once; afterwards "
+    "the model works offline.":
+        "Scaricare {0} ({1:.1f} GB) con Ollama?\n\nPro: {2}\nContro: {3}\n\nIl download richiede internet una "
+        "volta sola; poi il modello funziona offline.",
+    "Download failed: {0}": "Download non riuscito: {0}",
+    "{0} downloaded: it works offline from now on.": "{0} scaricato: da ora funziona offline.",
+    "Remove model": "Rimuovi modello", "Remove {0} from this PC?": "Rimuovere {0} da questo PC?",
+    "Listening for 30 s: move faders, knobs and buttons now…":
+        "In ascolto per 30 s: muovi adesso fader, manopole e pulsanti…",
+    "No MIDI input found on this PC.": "Nessun ingresso MIDI trovato su questo PC.",
+    "MIDI inputs found but none could be opened (in use by another program?).":
+        "Ingressi MIDI trovati ma nessuno si è potuto aprire (in uso da un altro programma?).",
+    "No MIDI messages in {0:.0f} s from: {1}. In standalone mode the unit does not send MIDI: the director relies on "
+    "cameras and audio.":
+        "Nessun messaggio MIDI in {0:.0f} s da: {1}. In standalone l'unità non invia MIDI: il regista si basa su "
+        "camere e audio.",
+    "MIDI received: ": "MIDI ricevuto: ",
+    "waiting for OBS": "in attesa di OBS", "running": "attivo", "OBS password rejected": "password OBS rifiutata",
+    "Stills from OBS: {0}": "Istantanee da OBS: {0}",
+    "no picture": "nessuna immagine", "no information": "nessuna informazione", "OK": "OK",
+    "black / dark": "nera / buia", "overexposed": "sovraesposta", "frozen image": "immagine bloccata",
+    "blurred or blocked": "sfocata o coperta",
+    "Slow eye off.": "Occhio lento spento.", "starting": "avvio", "error": "errore",
+    "waiting for camera pictures": "in attesa delle immagini delle camere",
+    "Slow eye: {0}": "Occhio lento: {0}",
+    "Last look {0:.0f} s ago ({1:.1f} s, {2}): {3}": "Ultimo sguardo {0:.0f} s fa ({1:.1f} s, {2}): {3}",
+    "interest {0:.0f}%": "interesse {0:.0f}%", "not usable: {0}": "non utilizzabile: {0}",
+    "For the drop: {0}": "Per il drop: {0}",
+    "Shot opened on the drop": "Inquadratura che si apre sul drop",
+    "Automatic (wide / behind / side, or the AI's pick)": "Automatica (wide / dietro / laterale, o la scelta dell'AI)",
+    "Off (a drop returns to the master)": "Spenta (sul drop si torna al master)",
+    "drop → {0}": "drop → {0}", "vision: {0}/{1} cameras seen": "visione: {0}/{1} camere viste",
+    "avoided: {0}": "evitate: {0}", "AI: {0}": "AI: {0}",
+    # model catalogue (pros / cons)
+    "Best understanding of scenes among the small models; about 1-3 s per look on an RTX 4060.":
+        "La migliore comprensione delle scene tra i modelli piccoli; circa 1-3 s per sguardo su una RTX 4060.",
+    "Uses about 4-5 GB of video memory while OBS is encoding; slow without a GPU.":
+        "Usa circa 4-5 GB di memoria video mentre OBS codifica; lento senza scheda video.",
+    "Lighter and faster; leaves more video memory to OBS.":
+        "Più leggero e veloce; lascia più memoria video a OBS.",
+    "Notices fewer details (e.g. small hand gestures, distant crowd).":
+        "Nota meno dettagli (per esempio piccoli gesti delle mani, pubblico lontano).",
+    "Widely used and stable; good general descriptions.": "Molto diffuso e stabile; buone descrizioni generali.",
+    "Somewhat less precise than Qwen3-VL on images.": "Un po' meno preciso di Qwen3-VL sulle immagini.",
+    "Most precise of the list.": "Il più preciso dell'elenco.",
+    "With OBS on an 8 GB card it can slow down encoding; only for GPUs with 12 GB or more.":
+        "Con OBS su una scheda da 8 GB può rallentare la codifica; solo per schede da 12 GB in su.",
+    "Smallest; runs even on modest PCs.": "Il più piccolo; gira anche su PC modesti.",
+    "Simple descriptions; often unreliable as a judge of shots.":
+        "Descrizioni semplici; spesso poco affidabile nel giudicare le inquadrature.",
+    "Best judgement of the scene and of the moment; 2-4 s per look.":
+        "Il giudizio migliore sulla scena e sul momento; 2-4 s per sguardo.",
+    "Highest cost per look; needs internet and an API key; frames leave the PC.":
+        "Costo per sguardo più alto; servono internet e una chiave API; le immagini escono dal PC.",
+    "Very good judgement at about half the cost.": "Ottimo giudizio a circa metà del costo.",
+    "Needs internet and an API key; frames leave the PC.":
+        "Servono internet e una chiave API; le immagini escono dal PC.",
+    "Cheapest and fastest.": "Il più economico e veloce.",
+    "Less refined judgement; needs internet and an API key; frames leave the PC.":
+        "Giudizio meno raffinato; servono internet e una chiave API; le immagini escono dal PC.",
 }

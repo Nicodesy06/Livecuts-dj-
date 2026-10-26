@@ -92,6 +92,11 @@ def main() -> int:
     except OSError:
         srv = FakeObsServer(scenes=SCENES).start()
     srv.obs_version, srv.ws_version, srv.collection = "31.0.0", "5.5.0", "DJ Set"
+    # synthetic camera stills: hands moving in the mixer region, crowd pulsing on the beat,
+    # one camera out of focus (shows the quality veto)
+    srv.scene_look = {"Cam Mixer": {"roi_motion": (0.25, 0.45, 0.5, 0.5), "motion": 0.8},
+                      "Cam Pubblico": {"pulse_period": 60 / 124, "motion": 0.6},
+                      "Cam Laterale": {"blur_at": time.monotonic() + 25}}     # loses focus after 25 s
     tr = generate(bpm=124)
     wav_dir = Path(tempfile.mkdtemp(prefix="demo"))
     wav = wav_dir / "demo_dj_set.wav"
@@ -105,6 +110,8 @@ def main() -> int:
                    CameraConfig("Cam Laterale", role=CameraRole.SIDE),
                    CameraConfig("Cam Dietro", role=CameraRole.BEHIND),
                    CameraConfig("Cam Pubblico", role=CameraRole.WIDE)]
+    cfg.vision.rois = {"Cam Mixer": [0.25, 0.45, 0.5, 0.5]}
+    cfg.vision.rate = "high"
     ConfigManager().save(cfg)
 
     app = QApplication.instance() or QApplication(sys.argv)
@@ -161,6 +168,20 @@ def main() -> int:
     scroll_to(p, 0)
 
     p = page(5)
+    p.roi_cam.setCurrentText("Cam Mixer")
+    pump(app, 1.0)
+    win.poll()
+    pump(app, 0.3)
+    save(win, "visione")
+    p.prov_buttons["local"].setChecked(True)
+    pump(app, 1.5)
+    scroll_to(p, 0.62)
+    pump(app, 0.3)
+    save(win, "visione-ai")
+    p.prov_buttons["off"].setChecked(True)
+    scroll_to(p, 0)
+
+    p = page(6)
     p.preset.setCurrentIndex(p.preset.findData("natural"))
     p.run()
     t0 = time.time()
@@ -169,7 +190,7 @@ def main() -> int:
     pump(app, 0.5)
     save(win, "simulazione")
 
-    page(6)
+    page(7)
     save(win, "decisioni")
 
     # --- setup wizard

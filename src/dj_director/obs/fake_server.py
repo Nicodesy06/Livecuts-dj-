@@ -13,6 +13,7 @@ import argparse
 import base64
 import hashlib
 import json
+import math
 import secrets
 import threading
 import uuid
@@ -37,6 +38,10 @@ class FakeObsServer:
         self.obs_version = "31.0.0-fake"
         self.ws_version = "5.5.0-fake"
         self.collection = "Fake Collection"
+        # GetSourceScreenshot: per-scene look of the synthetic still (see _screenshot)
+        self.scene_look: dict[str, dict] = {}
+        from dj_director.visual.imaging import warm_up
+        warm_up()
         self._clients = set()
         self._lock = threading.Lock()
         self._server = serve(self._handler, host, port)
@@ -151,11 +156,55 @@ class FakeObsServer:
             else:
                 self.program = name
                 self.broadcast("CurrentProgramSceneChanged", {"sceneName": name, "sceneUuid": self._uuid(name)})
+        elif rtype == "GetSourceScreenshot":
+            name = data.get("sourceName", "")
+            if not self._uuid(name):
+                ok, code, comment = False, 600, "No source was found"
+            else:
+                resp = {"imageData": self._screenshot(name, int(data.get("imageWidth") or 384),
+                                                      int(data.get("imageHeight") or 216))}
         else:
             ok, code, comment = False, 204, "Unknown request type"
         ws.send(json.dumps({"op": 7, "d": {"requestType": rtype, "requestId": rid,
                                            "requestStatus": {"result": ok, "code": code, "comment": comment},
                                            "responseData": resp}}))
+
+
+    def _screenshot(self, name: str, w: int, h: int) -> str:
+        """Synthetic camera still: textured background + a moving block.
+
+        scene_look[name] keys: brightness (0..1), motion (0..1 block speed),
+        pulse_period (s; >0 = whole frame pulses on that period), frozen (bool),
+        blur (bool) / blur_at (monotonic time focus is lost), black (bool),
+        roi_motion ((x, y, w, h), motion confined there).
+        """
+        import time
+        import numpy as np
+        from dj_director.visual.imaging import encode
+        look = self.scene_look.get(name, {})
+        t = look.get("frozen_t") if look.get("frozen") else time.monotonic()
+        if look.get("frozen") and t is None:
+            t = look["frozen_t"] = time.monotonic()
+        seed = sum(ord(c) for c in name)
+        rng = np.random.default_rng(seed)
+        base = rng.integers(40, 200, size=(h // 8 + 1, w // 8 + 1, 3)).astype(np.float32)
+        img = np.repeat(np.repeat(base, 8, 0), 8, 1)[:h, :w]
+        if look.get("blur") or (look.get("blur_at") and time.monotonic() >= look["blur_at"]):
+            img[:] = img.mean(axis=(0, 1))
+        speed = float(look.get("motion", 0.3))
+        rx, ry, rw, rh = look.get("roi_motion", (0.0, 0.0, 1.0, 1.0))
+        bw, bh = max(4, int(w * rw / 4)), max(4, int(h * rh / 3))
+        span = max(1, int(w * rw) - bw)
+        x = int(w * rx) + int((math.sin(t * speed * 6.0) * 0.5 + 0.5) * span) if speed > 0 else int(w * rx)
+        y = int(h * ry) + int(h * rh / 3)
+        img[y:y + bh, x:x + bw] = (250, 240, 60)
+        if look.get("pulse_period"):
+            img *= 0.75 + 0.25 * math.cos(2 * math.pi * t / look["pulse_period"])
+        img *= float(look.get("brightness", 1.0))
+        if look.get("black"):
+            img[:] = 0
+        data = encode(np.clip(img, 0, 255).astype(np.uint8), "JPG", 80)
+        return "data:image/jpg;base64," + base64.b64encode(data).decode()
 
 
 def main() -> None:

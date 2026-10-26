@@ -32,13 +32,15 @@ CLOSE_UNSUPPORTED_RPC_VERSION = 4010
 
 # The *only* requests this application ever sends. Anything else is refused by
 # the client, which guarantees we never create/delete scenes, touch filters,
-# audio, profiles, or start/stop outputs.
+# audio, profiles, or start/stop outputs. GetSourceScreenshot (0.2, scene
+# awareness) is read-only: it renders a small still of a scene and changes nothing.
 ALLOWED_REQUESTS = frozenset({
     "GetVersion",
     "GetSceneList",
     "GetStudioModeEnabled",
     "GetSceneCollectionList",
     "SetCurrentProgramScene",
+    "GetSourceScreenshot",
 })
 
 

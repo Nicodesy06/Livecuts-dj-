@@ -1,4 +1,4 @@
-# Architettura (v0.1)
+# Architettura (v0.2)
 
 ```
  Audio device / file
@@ -17,6 +17,16 @@
         │ eventi (thread "obs-reader"): cambi manuali, rinomina, scene list, studio mode
         └──────────────► comandi in coda al director thread
  GUI (thread principale): legge AppController.snapshot() a 10 Hz, senza mai bloccarsi su I/O
+
+ Visione (v0.2), su una seconda connessione obs-websocket senza eventi:
+ thread "vision-frames": GetSourceScreenshot (sola lettura) a 5/10/16 istantanee/s
+        │  JPEG 384×216 → numpy
+        ▼
+ FastVisualAnalyzer (occhio veloce): qualità → veto, movimento nella zona d'interesse, battito
+        │                                    ▲ mosaico numerato delle camere ogni N s
+        │                     thread "vision-judge": SceneJudge → Ollama (locale) o API Claude (cloud)
+        ▼
+ VisionService: score / activity / issue / reveal_hint  ⇒  letti dall'engine a ogni tick (mai bloccanti)
 ```
 
 ## Moduli
@@ -32,7 +42,8 @@
 | `director/` | Camera registry (ruoli, disponibilità, ancora), Director Engine, calibrazione dell'offset |
 | `obs/` | Protocollo, client WebSocket con allow-list, controller (supervisione, eventi, comandi), finto server per test e demo |
 | `simulation/` | Generatore sintetico con ground truth, replay offline, metriche editoriali, baseline timer e casuale |
-| `visual/` | Interfaccia per l'analisi visiva (v0.2); in v0.1 è un'implementazione nulla |
+| `visual/` | Visione (v0.2): `frames` (istantanee da OBS), `fast` (occhio veloce: qualità, movimento, battito), `judge` + `providers` (occhio lento: Ollama locale o API Claude), `imaging` (codec e mosaico con Qt), `vision` (servizio che li unisce per l'engine) |
+| `sensors/` | Sonda MIDI (Windows, winmm): verifica se l'hardware DJ invia messaggi al PC |
 | `diagnostics/` | Logging con rotazione, filtro dei segreti, log JSONL delle decisioni |
 | `ui/` | Tema, widget, dashboard, pagine di configurazione, simulazione, log, wizard, traduzioni (italiano/inglese) |
 
@@ -73,4 +84,5 @@
 | Confini di frase | **Euristica**: griglia di 4/8 battute prevista dall'ultimo drop rilevato |
 | Stati musicali ed eventi | **Regole esplicite** con soglie, isteresi e confidenza; ipotesi, non etichette musicologiche |
 | Director | **Regole + scoring deterministici**; nessun numero casuale: variazione da sequenza del rapporto aureo con seed (v0.1.3) |
+| Visione | **Misure semplici e verificabili** (esposizione, nitidezza relativa alla camera, differenze tra fotogrammi, concentrazione di fase sul beat) per tutto ciò che deve essere veloce; **modello visivo** solo come giudizio lento e facoltativo, che orienta ma non comanda i tagli |
 | Modelli neurali | **Nessuno** in v0.1. Nulla viene presentato come "AI" quando è una regola o un timer |

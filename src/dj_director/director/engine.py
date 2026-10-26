@@ -37,6 +37,13 @@ Editorial coverage budget
     master dwell, destination choice and planned insert lengths. Nothing chases
     the targets second by second.
 
+Scene awareness (0.2)
+    A visual *veto* (black, frozen, blurred / blocked, or judged unusable by the
+    slow eye) removes a camera from the candidates and ends its shot early when
+    it is on air. Drop grammar: the *reveal* camera (chosen scene, the slow
+    eye's suggestion, else wide / behind / side) is held back during the
+    build-up and opened on the drop, on the beat.
+
 Determinism
     No random numbers. Shot lengths vary through a low-discrepancy (golden
     ratio) sequence per coverage class, offset by the seed, and through the
@@ -131,6 +138,7 @@ class EngineSettings:
     override_policy: str = "timed"
     override_seconds: float = 30.0
     no_signal_policy: str = "master"
+    drop_scene: str = ""              # reveal camera for drops ("" = automatic)
 
 
 class VisualNovelty:
@@ -177,7 +185,9 @@ class DirectorEngine:
     def __init__(self, registry: CameraRegistry, params: DirectorParams,
                  settings: EngineSettings | None = None, seed: int = 0,
                  visual_fit: Callable[[Camera], float] | None = None,
-                 visual_activity: Callable[[Camera], Optional[float]] | None = None) -> None:
+                 visual_activity: Callable[[Camera], Optional[float]] | None = None,
+                 visual_issue: Callable[[Camera], str] | None = None,
+                 reveal_hint: Callable[[], Optional[str]] | None = None) -> None:
         self.reg = registry
         self.p = params
         self.s = settings or EngineSettings()
@@ -185,6 +195,8 @@ class DirectorEngine:
         self._seed_offset = (seed * 0.7548776662466927) % 1.0
         self.visual_fit = visual_fit or (lambda cam: 0.0)
         self.visual_activity = visual_activity or (lambda cam: None)
+        self.visual_issue = visual_issue or (lambda cam: "")
+        self.reveal_hint = reveal_hint or (lambda: None)
         self.current: Optional[str] = None
         self.shot_start = 0.0
         self.shot_target = 0.0
@@ -288,6 +300,38 @@ class DirectorEngine:
         mn = min(cam.min_duration * sc, pmin)
         return ShotSpec(mn, pmin, pmax, cap, cam.cooldown, cls)
 
+    def veto(self, cam: Optional[Camera]) -> str:
+        """Visual quality problem that makes the camera unairable right now ("" = none)."""
+        if cam is None:
+            return ""
+        try:
+            return self.visual_issue(cam) or ""
+        except Exception:
+            return ""
+
+    def reveal_camera(self) -> Optional[Camera]:
+        """The shot opened on a drop: chosen scene, else the slow eye's pick, else the widest insert."""
+        if not self.p.drop_reveal:
+            return None
+        names = [self.s.drop_scene]
+        try:
+            names.append(self.reveal_hint())
+        except Exception:
+            pass
+        for n in names:
+            c = self.reg.get(n) if n else None
+            if c is not None and c.usable and not self.reg.is_anchor(c):
+                return c
+        order = (R.WIDE, R.BEHIND, R.SIDE, R.CUSTOM)
+        cands = [c for c in self.reg.usable() if not self.reg.is_anchor(c) and c.role in order]
+        if not cands:
+            return None
+        return min(cands, key=lambda c: (order.index(c.role), -c.weight, c.name))
+
+    def _reveal_ok(self, now: float, rc: Optional[Camera], cur: Camera) -> bool:
+        return (rc is not None and rc.name != cur.name and not self.veto(rc)
+                and now >= self._failed_until.get(rc.name, 0) and now - rc.last_used_end >= 3.0)
+
     def coverage_targets(self) -> dict[str, float]:
         """Soft targets, renormalised over the classes that actually have usable cameras."""
         present = {COVER_MASTER}
@@ -379,6 +423,15 @@ class DirectorEngine:
     # ------------------------------------------------------------------ ENTRY (on the master)
     def _entry(self, now: float, snap, state: MusicState, cur: Camera, sp: ShotSpec,
                tos: float) -> DirectorDecisionEvent:
+        bad = self.veto(cur)
+        if bad and tos >= 1.0:
+            ranked = [x for x in self._rank_inserts(now, cur, state, self.coverage(now),
+                                                    self.coverage_targets(), None, ignore_cooldown=True)]
+            if ranked:
+                best = ranked[0][0]
+                timing, target_t = self._timing(now, snap, urgent=True, deadline=now + 1.0)
+                return self._commit(now, best.name, f"entry: master shot unusable ({bad})", 0.9, 1.0,
+                                    state, timing, target_t, (), kind="entry", trigger="visual")
         if tos < sp.min:
             return self._decision(now, DirectorAction.HOLD, None,
                                   f"minimum shot length not reached ({tos:.0f}/{sp.min:.0f}s)", 1.0, state)
@@ -424,6 +477,16 @@ class DirectorEngine:
                                   opportunity=opportunity)
 
         ranked = self._rank_inserts(now, cur, state, cov, targets, vis_ev)
+        rc = self.reveal_camera()
+        if (trig_ev is not None and trig_ev.kind == "reentry" and trig >= vis
+                and self._reveal_ok(now, rc, cur) and rc.allows(state.value)):
+            # drop grammar: open on the reveal shot, on the next beat
+            timing, target_t = self._timing(now, snap, urgent=True)
+            reason = (f"entry: drop reveal on {rc.name} ({trig_ev.confidence:.2f}); "
+                      f"{self.class_of(rc)} coverage {cov.get(self.class_of(rc), 0) * 100:.0f}%/"
+                      f"{targets.get(self.class_of(rc), 0) * 100:.0f}%")
+            return self._commit(now, rc.name, reason, max(0.6, trig_ev.confidence), opportunity, state,
+                                timing, target_t, (), kind="entry", trigger="musical", music=True)
         if not ranked:
             why = "only one usable camera" if len(self.reg.usable()) <= 1 else (
                 "all alternatives cooling down or unsuitable")
@@ -460,7 +523,8 @@ class DirectorEngine:
         return min(max(self.shot_target * factor, sp.pref_min), sp.pref_max)
 
     def _rank_inserts(self, now: float, cur: Camera, state: MusicState, cov: dict, targets: dict,
-                      vis_ev: Optional[VisualEvent]) -> list[tuple[Camera, float, dict]]:
+                      vis_ev: Optional[VisualEvent], ignore_cooldown: bool = False
+                      ) -> list[tuple[Camera, float, dict]]:
         last_insert = next((s for s in reversed(self.history)
                             if self.reg.get(s.camera) is not None
                             and not self.reg.is_anchor(self.reg.get(s.camera))
@@ -475,7 +539,9 @@ class DirectorEngine:
             cls = self.class_of(c)
             if targets.get(cls, 0.0) <= 0:
                 continue
-            if now - c.last_used_end < c.cooldown:
+            if now - c.last_used_end < c.cooldown and not ignore_cooldown:
+                continue
+            if self.veto(c):
                 continue
             parts: dict[str, float] = {
                 "coverage": self.p.coverage_gain * (targets[cls] - cov.get(cls, 0.0)) * 8.0,
@@ -493,6 +559,11 @@ class DirectorEngine:
         if last_insert is not None and len(out) > 1:
             # never the same insert twice around the master (M-A-M-A) while an alternative exists
             out = [x for x in out if x[0].name != last_insert.camera]
+        if state == MusicState.INCREASING and len(out) > 1:
+            # build-up: keep the reveal shot back for the drop (tension, then release)
+            rc = self.reveal_camera()
+            if rc is not None:
+                out = [x for x in out if x[0].name != rc.name]
         out.sort(key=lambda x: (-x[1], x[0].name))
         return out
 
@@ -504,8 +575,24 @@ class DirectorEngine:
         if anchor is None:
             return self._decision(now, DirectorAction.HOLD, None, "no usable camera configured", 0, state)
         if now >= deadline - safety:
-            return self._switch_now(now, anchor.name, f"exit: hard cap {sp.cap:.0f}s; back to anchor {anchor.name}",
+            home = self._home(now, cur, state, anchor)
+            return self._switch_now(now, home.name, f"exit: hard cap {sp.cap:.0f}s; back to anchor {home.name}",
                                     1.0, 1.0, state, kind="exit")
+        bad = self.veto(cur)
+        if bad and tos >= 1.0:
+            home = self._home(now, cur, state, anchor)
+            timing, target_t = self._timing(now, snap, urgent=True, deadline=min(deadline, now + 1.0))
+            return self._commit(now, home.name, f"exit: shot unusable ({bad}); back to anchor {home.name}",
+                                0.9, 1.0, state, timing, target_t, (), kind="exit", trigger="visual",
+                                deadline=min(deadline, now + 1.0))
+        trig, trig_ev = self._music_trigger()
+        rc = self.reveal_camera()
+        if (trig_ev is not None and trig_ev.kind == "reentry" and tos >= 0.5 * sp.min
+                and self._reveal_ok(now, rc, cur) and rc.allows(state.value)):
+            timing, target_t = self._timing(now, snap, urgent=True, deadline=deadline)
+            return self._commit(now, rc.name, f"exit: drop reveal on {rc.name} ({trig_ev.confidence:.2f})",
+                                max(0.6, trig_ev.confidence), trig, state, timing, target_t, (),
+                                kind="exit", trigger="musical", music=True, deadline=deadline)
         if tos < sp.min:
             return self._decision(now, DirectorAction.HOLD, None,
                                   f"minimum shot length not reached ({tos:.0f}/{sp.min:.0f}s)", 1.0, state)
@@ -515,10 +602,10 @@ class DirectorEngine:
         continuity = self._continuity(now, cur, state, snap)
         if continuity:
             planned = max(planned, sp.pref_max)
-        trig, trig_ev = self._music_trigger()
+        is_reveal = rc is not None and rc.name == cur.name
 
-        # opportune early return: a drop belongs on the master / wide shot
-        if (trig_ev is not None and trig_ev.kind == "reentry"
+        # opportune early return: a drop belongs on the master / wide shot (or stays on the reveal)
+        if (trig_ev is not None and trig_ev.kind == "reentry" and not is_reveal
                 and MUSICAL_FIT.get(cur.role, {}).get(S.REENTRY, 0) < MUSICAL_FIT[R.MASTER][S.REENTRY]):
             timing, target_t = self._timing(now, snap, urgent=True, deadline=deadline)
             return self._commit(now, anchor.name,
@@ -532,6 +619,7 @@ class DirectorEngine:
             return self._decision(now, DirectorAction.HOLD, None, why, 0.8, state)
 
         # where to go: home, unless the budget clearly asks for a second insert
+        anchor = self._home(now, cur, state, anchor)
         target, reasons = anchor, [f"exit: planned length reached ({tos:.0f}s, preferred "
                                    f"{sp.pref_min:.0f}-{sp.pref_max:.0f}s)", f"back to anchor {anchor.name}"]
         chain = self._chain_candidate(now, cur, state, cov, targets)
@@ -543,6 +631,14 @@ class DirectorEngine:
         timing, target_t = self._timing(now, snap, urgent=True, deadline=deadline)
         return self._commit(now, target.name, "; ".join(reasons), 0.8, 1.0, state, timing, target_t, (),
                             kind="exit", trigger="planned", deadline=deadline)
+
+    def _home(self, now: float, cur: Camera, state: MusicState, anchor: Camera) -> Camera:
+        """The anchor, unless its picture is unusable: then the best other usable insert."""
+        if not self.veto(anchor):
+            return anchor
+        alts = self._rank_inserts(now, cur, state, self.coverage(now), self.coverage_targets(), None,
+                                  ignore_cooldown=True)
+        return alts[0][0] if alts else anchor
 
     def _insert_length(self, sp: ShotSpec, cov: dict, targets: dict) -> float:
         """Planned insert length, pulled inside the preferred window by the class budget.

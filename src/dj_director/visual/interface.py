@@ -1,10 +1,11 @@
-"""Visual analysis interface (implementation planned for v0.2).
+"""Visual analysis interface.
 
-The director already consumes a per-camera ``VisualFit`` term; in v0.1 it is
-always 0 because no video is analysed. A v0.2 analyser (OpenCV/MediaPipe on
-low-resolution frames obtained through a supported OBS mechanism such as
-``GetSourceScreenshot`` or a virtual camera) only has to implement
-:class:`VisualAnalyzer`; nothing in the engine changes.
+The director consumes a per-camera ``VisualFit`` term, an activity value and
+(0.2) a quality veto. The implementation is
+:class:`dj_director.visual.vision.VisionService`: small OBS stills
+(``GetSourceScreenshot``, read-only) analysed by the fast eye, plus an optional
+vision-language model (slow eye). :class:`NullVisualAnalyzer` keeps the engine
+usable without any visual information (tests, offline replay).
 
 Contract:
 * ``score`` returns a value roughly in [-1, 1] (negative = shot currently not
@@ -15,7 +16,10 @@ Contract:
   it as "presence": it tracks a per-camera baseline and only a clear rise above
   it (novelty) creates an opportunity. Continuous activity habituates to zero,
   so hands resting on the mixer can neither re-trigger nor extend a Detail shot.
-Both must be cheap (cached), never block, and never claim more than they
+* ``issue`` returns "" or why the camera is unairable right now (black,
+  frozen, blurred / blocked, or judged unusable by the slow eye): a veto.
+* ``reveal_hint`` returns the scene the slow eye suggests for the next drop.
+All must be cheap (cached), never block, and never claim more than they
 measure (hand *movement* is not "EQ adjustment").
 """
 
@@ -31,9 +35,13 @@ class VisualAnalyzer(Protocol):
 
     def activity(self, camera_name: str) -> Optional[float]: ...
 
+    def issue(self, camera_name: str) -> str: ...
+
+    def reveal_hint(self) -> Optional[str]: ...
+
 
 class NullVisualAnalyzer:
-    """v0.1 default: no visual information."""
+    """No visual information (offline replay, tests)."""
 
     def score(self, camera_name: str) -> Optional[float]:
         return None
@@ -42,4 +50,10 @@ class NullVisualAnalyzer:
         return True
 
     def activity(self, camera_name: str) -> Optional[float]:
+        return None
+
+    def issue(self, camera_name: str) -> str:
+        return ""
+
+    def reveal_hint(self) -> Optional[str]:
         return None

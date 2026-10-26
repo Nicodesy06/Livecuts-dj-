@@ -14,7 +14,7 @@
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6">
   <img alt="OBS" src="https://img.shields.io/badge/OBS-28%2B-302E31">
   <a href="../../actions/workflows/build-windows.yml"><img alt="Build" src="https://github.com/Nicodesy06/Livecuts-dj-/actions/workflows/build-windows.yml/badge.svg"></a>
-  <img alt="Offline" src="https://img.shields.io/badge/100%25-offline-2fd17c">
+  <img alt="Offline" src="https://img.shields.io/badge/offline-AI%20locale%20opzionale-2fd17c">
 </p>
 
 <p align="center">
@@ -47,12 +47,16 @@ Durante il set tu pensi solo alla musica. DJ Director:
   BPM, beat e andamento: groove, breakdown, build-up, drop, transizioni;
 - 🎬 **decide** se e quando tagliare e su quale camera, come un regista discreto: riprese lunghe sul
   master, inserti brevi sui dettagli, tagli sul beat e sui confini di frase, mai a ogni cassa;
+- 👁️ **guarda le camere** (novità 0.2): evita inquadrature nere, ferme, sfocate o coperte, nota il
+  movimento delle mani sul mixer e il pubblico a tempo. Sul drop apre l'inquadratura più ampia. Se vuoi,
+  un modello AI **locale** (offline, con Ollama) o cloud giudica quale camera è più interessante;
 - 🎛️ **comanda OBS** cambiando la scena *Program* tramite obs-websocket (incluso in OBS 28+), senza
   toccare registrazione, streaming, sorgenti o filtri;
 - ✋ **rispetta te**: se cambi scena a mano in OBS, il programma se ne accorge e non ti contraddice;
 - 🧪 offre la modalità **Shadow** (decide e mostra tutto senza toccare OBS) e una **Simulazione** su set
   registrati;
-- 🇮🇹 ha un'interfaccia **in italiano** (o inglese) e funziona **interamente offline**.
+- 🇮🇹 ha un'interfaccia **in italiano** (o inglese) e funziona **offline**; il cloud è solo un'opzione
+  che scegli tu.
 
 > Un bravo regista sa anche quando *non* cambiare camera. Ogni decisione di DJ Director, compresa quella
 > di restare sull'inquadratura attuale, ha un motivo che puoi leggere.
@@ -69,7 +73,8 @@ Durante il set tu pensi solo alla musica. DJ Director:
 | `Guida_DJ_Director_AI.pdf` | La guida completa all'utilizzo, da stampare o leggere sul telefono |
 
 Requisiti: Windows 10 o 11 a 64 bit, OBS Studio 28 o successivo, un ingresso audio con il master del mixer.
-Non serve una scheda video particolare né Python: il programma usa circa il 3% di un core della CPU.
+Non serve Python e il programma usa pochi punti percentuali di un core della CPU. La scheda video serve
+solo per l'occhio lento con un modello AI locale (consigliata NVIDIA da 8 GB, per esempio RTX 4060).
 
 ---
 
@@ -205,6 +210,31 @@ Tre stili, cioè tre impostazioni dello stesso motore:
 beat. Sposta il cursore finché il taglio cade sulla cassa (taglio in ritardo → più anticipo), poi premi
 **Ferma calibrazione** per salvare il valore.
 
+In **Comportamento** scegli anche l'**inquadratura che si apre sul drop**: una qualsiasi delle tue scene,
+automatica oppure spenta.
+
+### Visione: il regista guarda le camere
+
+<img src="docs/images/visione.png" alt="Pagina Visione: stato delle camere e zona del mixer" width="900">
+
+- **Occhio veloce** (sempre locale, senza AI): legge piccole istantanee delle scene da OBS, in sola
+  lettura. Esclude le camere nere, sovraesposte, ferme o sfocate / coperte e misura il movimento,
+  anche solo nella **zona di interesse** che disegni (per esempio il mixer). Conta il gesto nuovo, non le
+  mani ferme.
+- **Occhio lento** (facoltativo): un modello AI guarda tutte le camere ogni pochi secondi e dice quali
+  sono interessanti, quali da evitare e quale mostrerebbe meglio il drop. Orienta le scelte; i tagli
+  restano sul beat.
+
+<img src="docs/images/visione-ai.png" alt="Scelta del modello AI locale con pro e contro" width="900">
+
+| Occhio lento | Pro | Contro |
+|---|---|---|
+| **Locale** (Ollama, consigliato Qwen3-VL 4B) | Gratis, offline, nulla esce dal PC | Serve una scheda video; il modello va scaricato una volta (3,3 GB) |
+| **Cloud** (API Claude) | Il giudizio migliore, nessun carico sul PC | Internet, chiave API, costo per sguardo; le istantanee lasciano il PC |
+
+La pagina include anche una **sonda MIDI**: dice se il tuo controller invia messaggi al PC. Una Pioneer
+XDJ-RX3 in standalone di norma non ne invia.
+
 ### Simulazione
 
 <img src="docs/images/simulazione.png" alt="Simulazione con timeline e metriche" width="900">
@@ -255,20 +285,26 @@ Vanno bene anche altre interfacce audio, la scheda audio interna di mixer e cont
 | BPM doppi o dimezzati | *Audio › Analisi › Tempo tipico*: impostalo vicino al tuo genere |
 | Taglia troppo / troppo poco | Prova lo stile **Minimal** o **Dynamic** |
 | Resta su `ARMED` | Leggi il messaggio: di solito OBS non è connesso o manca una scena |
+| Visione: "nessuna immagine" | In OBS togli *Disattiva quando non mostrata* dalla sorgente camera |
+| Occhio lento in errore | Avvia Ollama e premi **Ricontrolla**, poi scarica il modello scelto |
 
-Altri casi nella [guida completa](docs/GUIDA_UTENTE.md#11-risoluzione-dei-problemi).
+Altri casi nella [guida completa](docs/GUIDA_UTENTE.md#12-risoluzione-dei-problemi).
 
 ---
 
 ## Privacy e sicurezza
 
-- Nessuna telemetria, nessun account, nessun servizio cloud: **l'audio non lascia mai il PC**.
-- Il programma comunica solo con OBS sull'indirizzo configurato (di default `127.0.0.1`).
-- In OBS usa solo cinque comandi: lettura di versione, elenco scene, collezione di scene e stato dello
-  Studio Mode, più il cambio della scena Program.
+- Nessuna telemetria, nessun account: **l'audio non lascia mai il PC**, e nemmeno le immagini, a meno
+  che tu non attivi l'occhio lento **cloud**. In quel caso le istantanee delle camere vengono inviate
+  all'API Claude.
+- Il programma comunica con OBS sull'indirizzo configurato (di default `127.0.0.1`), con Ollama sul PC
+  (`127.0.0.1:11434`) se usi il modello locale e con l'API Claude solo se scegli il cloud.
+- In OBS usa solo sei comandi: lettura di versione, elenco scene, collezione di scene, stato dello
+  Studio Mode e istantanea di una scena (sola lettura), più il cambio della scena Program.
   **Non** crea, elimina o modifica scene, sorgenti, filtri o audio e **non** avvia né ferma registrazione
   o streaming. Lo garantisce un elenco di comandi consentiti nel codice, verificato dai test.
-- La password di OBS è cifrata con Windows DPAPI e non compare mai in configurazione o nei log.
+- La password di OBS e la chiave API Claude sono cifrate con Windows DPAPI e non compaiono mai in
+  configurazione o nei log.
 
 ---
 
@@ -278,7 +314,7 @@ Altri casi nella [guida completa](docs/GUIDA_UTENTE.md#11-risoluzione-dei-proble
 git clone https://github.com/Nicodesy06/Livecuts-dj-.git && cd Livecuts-dj-
 python -m venv .venv && . .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements-lock.txt && pip install -e ".[dev]"
-QT_QPA_PLATFORM=offscreen pytest                     # 120+ test: unit, integrazione, GUI, qualità
+QT_QPA_PLATFORM=offscreen pytest                     # 170+ test: unit, integrazione, GUI, qualità
 python -m dj_director                                # avvia l'interfaccia
 ```
 
@@ -295,7 +331,7 @@ dj-director selftest                                            # verifica di un
 **Build Windows**: `powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1` (test, PyInstaller,
 self-test degli eseguibili, guida PDF, zip). La CI (`.github/workflows/build-windows.yml`) fa lo stesso su
 ogni push. Per pubblicare una release: *Actions › test-and-build-windows › Run workflow* con
-`release_tag` (es. `v0.1.2`).
+`release_tag` (es. `v0.2.0`).
 
 **Struttura**
 
@@ -306,6 +342,8 @@ src/dj_director/
 ├── director/    motore decisionale, camere, calibrazione
 ├── obs/         client obs-websocket 5 con allow-list, controller, OBS simulato
 ├── simulation/  replay deterministico, set sintetico, metriche editoriali
+├── visual/      visione: istantanee da OBS, occhio veloce, occhio lento (Ollama / API Claude)
+├── sensors/     sonda MIDI
 ├── ui/          interfaccia PySide6 e traduzioni
 ├── config/      configurazione validata, preset, password cifrata
 └── core/        contratti tipizzati, application controller
@@ -314,7 +352,7 @@ src/dj_director/
 Gli screenshot di questa pagina sono generati con `scripts/make_screenshots.py`: il programma reale,
 collegato all'OBS simulato incluso e a un set audio sintetico. L'elenco dei dispositivi audio e la tabella
 del rilevamento mostrano un esempio con la UCA222, perché la macchina che genera le immagini non ha una
-scheda audio.
+scheda audio. Le immagini delle camere nella pagina Visione sono quelle sintetiche dell'OBS simulato.
 
 ---
 
@@ -323,7 +361,7 @@ scheda audio.
 | Documento | Contenuto |
 |---|---|
 | [Guida all'utilizzo](docs/GUIDA_UTENTE.md) | Manuale completo per l'utente (anche in PDF nella release) |
-| [Come decide il regista](docs/DIRECTOR.md) | Ingresso e uscita, budget di copertura, novità visiva, timing, preset |
+| [Come decide il regista](docs/DIRECTOR.md) | Ingresso e uscita, budget di copertura, visione (occhio veloce e lento), drop, timing, preset |
 | [Architettura](docs/ARCHITECTURE.md) | Moduli, thread, flussi di dati |
 | [Audit tecnico](docs/TECHNICAL_AUDIT.md) | Scelte tecnologiche, librerie e rischi |
 | [Test e risultati](docs/TESTING.md) | Test automatici, misure, checklist dei test manuali |

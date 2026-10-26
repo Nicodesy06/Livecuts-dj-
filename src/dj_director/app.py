@@ -175,9 +175,32 @@ def _cmd_selftest(a: argparse.Namespace) -> int:
         app.processEvents()
         return f"Qt {__import__('PySide6').__version__}"
 
+    def vision():
+        import base64
+        import numpy as np
+        from dj_director.visual import imaging
+        from dj_director.visual.fast import FastVisualAnalyzer
+        from dj_director.visual.providers import OllamaProvider, cloud_available
+        imaging.warm_up()
+        rgb = (np.random.default_rng(1).random((216, 384, 3)) * 255).astype(np.uint8)
+        jpg = imaging.encode(imaging.mosaic([rgb, rgb, None]), "JPG")
+        img = imaging.decode_data_uri("data:image/jpg;base64," + base64.b64encode(jpg).decode())
+        assert img is not None, "JPEG codec plugin missing"
+        fa = FastVisualAnalyzer()
+        for i in range(8):
+            fa.ingest("cam", i * 0.25, np.zeros_like(rgb))
+        assert fa.issue("cam", 2.0) == "black frame"
+        import sys
+        if getattr(sys, "frozen", False):
+            assert cloud_available(), "anthropic SDK not bundled"
+        ollama = OllamaProvider().version(0.5)
+        return (f"JPEG ok, Ollama {'running ' + ollama if ollama else 'not running'}, "
+                f"cloud SDK {'bundled' if cloud_available() else 'MISSING'}")
+
     ok = all([check("config + secrets", config), check("audio libraries", audio_io),
               check("WASAPI loopback", loopback),
-              check("analysis + director", dsp), check("OBS client", obs_client), check("Qt GUI", qt)])
+              check("analysis + director", dsp), check("OBS client", obs_client), check("vision", vision),
+              check("Qt GUI", qt)])
     text = "\n".join(report) + ("\nSELFTEST PASSED" if ok else "\nSELFTEST FAILED")
     print(text)
     if a.out:

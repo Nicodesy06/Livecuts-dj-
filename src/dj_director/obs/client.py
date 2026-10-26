@@ -49,7 +49,9 @@ class _Pending:
 
 class ObsClient:
     def __init__(self, on_event: Callable[[str, dict], None] | None = None,
-                 on_disconnect: Callable[[str], None] | None = None) -> None:
+                 on_disconnect: Callable[[str], None] | None = None,
+                 event_subscriptions: int = P.EVENT_SUBSCRIPTIONS) -> None:
+        self.event_subscriptions = event_subscriptions
         self.on_event = on_event or (lambda t, d: None)
         self.on_disconnect = on_disconnect or (lambda reason: None)
         self._ws: Optional[websocket.WebSocket] = None
@@ -80,7 +82,7 @@ class ObsClient:
             d = hello.get("d", {})
             self.server_version = d.get("obsWebSocketVersion", "")
             identify: dict[str, Any] = {"rpcVersion": P.RPC_VERSION,
-                                        "eventSubscriptions": P.EVENT_SUBSCRIPTIONS}
+                                        "eventSubscriptions": self.event_subscriptions}
             auth = d.get("authentication")
             if auth:
                 if not password:

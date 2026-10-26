@@ -116,7 +116,12 @@ _RANGES: dict[str, tuple[float, float]] = {
     "detail_hard_cap": HARD_CAP_RANGE[COVER_DETAIL],
     "side_hard_cap": HARD_CAP_RANGE[COVER_SIDE],
     "visual_novelty_threshold": (0.05, 1.0),
+    "judge_interval": (3.0, 60.0),
+    "judge_timeout": (2.0, 60.0),
 }
+
+VISION_RATES = ("low", "normal", "high")          # screenshot requests per second: 5 / 10 / 16
+JUDGE_PROVIDERS = ("off", "local", "cloud")
 
 
 @dataclass
@@ -224,6 +229,8 @@ class DirectorParams:
     side_hard_cap: float = 22.0
     # --- visual opportunities: novelty of activity vs. its own baseline, never mere presence
     visual_novelty_threshold: float = 0.35
+    # --- drop grammar (0.2): keep the reveal shot back during the build-up, open on it at the drop
+    drop_reveal: bool = True
 
 
 @dataclass
@@ -235,6 +242,21 @@ class DirectorConfig:
     no_signal_policy: str = "master"  # "master" | "hold"
     latency_offset_ms: float = 40.0   # command is sent this early w.r.t. the musical target
     seed: int = 0                     # 0 = random per session; fixed => reproducible
+    drop_scene: str = ""              # scene opened on the drop ("" = automatic: wide / behind / side)
+
+
+@dataclass
+class VisionConfig:
+    """Scene awareness (0.2). Frames come from OBS (GetSourceScreenshot, read-only)."""
+    enabled: bool = True              # fast eye: quality veto, motion, mixer region
+    rate: str = "normal"              # "low" | "normal" | "high" (OBS screenshot load)
+    rois: dict[str, list[float]] = field(default_factory=dict)   # scene -> [x, y, w, h] in 0..1
+    judge_provider: str = "off"       # slow eye: "off" | "local" (Ollama) | "cloud" (Claude API)
+    local_model: str = "qwen3-vl:4b"
+    ollama_url: str = "http://127.0.0.1:11434"
+    cloud_model: str = "claude-opus-5-5"
+    judge_interval: float = 8.0       # s between two looks of the slow eye
+    judge_timeout: float = 20.0
 
 
 @dataclass
@@ -247,6 +269,7 @@ class AppConfig:
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
     director: DirectorConfig = field(default_factory=DirectorConfig)
     cameras: list[CameraConfig] = field(default_factory=list)
+    vision: VisionConfig = field(default_factory=VisionConfig)
     log_decisions: bool = True
     ui_language: str = "auto"         # "auto" (system) | "it" | "en"
 
@@ -332,6 +355,11 @@ def from_dict(cls: type, data: Any, issues: Optional[list[str]] = None, path: st
                 setattr(inst, f.name, list(value))
             else:
                 issues.append(f"{p}: expected list of strings")
+        elif f.name == "rois":
+            if isinstance(value, dict):
+                setattr(inst, f.name, validate_rois(value, issues, p))
+            else:
+                issues.append(f"{p}: expected object")
         elif f.name == "overrides":
             if isinstance(value, dict):
                 setattr(inst, f.name, validate_overrides(value, issues, p))
@@ -341,6 +369,23 @@ def from_dict(cls: type, data: Any, issues: Optional[list[str]] = None, path: st
             setattr(inst, f.name, _coerce(f.name, default, value, issues, p))
     _post_validate(inst, issues, path)
     return inst
+
+
+def validate_rois(data: dict, issues: list[str], path: str = "rois") -> dict:
+    """scene -> [x, y, w, h] normalised to the frame; clipped inside it, tiny regions dropped."""
+    out: dict[str, list[float]] = {}
+    for k, v in data.items():
+        if not (isinstance(k, str) and isinstance(v, list) and len(v) == 4
+                and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in v)):
+            issues.append(f"{path}.{k}: expected [x, y, w, h]")
+            continue
+        x, y = min(max(float(v[0]), 0.0), 1.0), min(max(float(v[1]), 0.0), 1.0)
+        w, h = min(max(float(v[2]), 0.0), 1.0 - x), min(max(float(v[3]), 0.0), 1.0 - y)
+        if w < 0.05 or h < 0.05:
+            issues.append(f"{path}.{k}: region too small, ignored")
+            continue
+        out[k] = [round(x, 4), round(y, 4), round(w, 4), round(h, 4)]
+    return out
 
 
 def validate_overrides(data: dict, issues: list[str], path: str = "overrides") -> dict:
@@ -369,6 +414,16 @@ def _post_validate(inst: Any, issues: list[str], path: str) -> None:
         if inst.no_signal_policy not in ("master", "hold"):
             issues.append(f"{path}.no_signal_policy: invalid, reset")
             inst.no_signal_policy = "master"
+    if isinstance(inst, VisionConfig):
+        if inst.rate not in VISION_RATES:
+            issues.append(f"{path}.rate: invalid, reset")
+            inst.rate = "normal"
+        if inst.judge_provider not in JUDGE_PROVIDERS:
+            issues.append(f"{path}.judge_provider: invalid, reset")
+            inst.judge_provider = "off"
+        if not inst.ollama_url.startswith(("http://", "https://")):
+            issues.append(f"{path}.ollama_url: invalid, reset")
+            inst.ollama_url = "http://127.0.0.1:11434"
     if isinstance(inst, AppConfig):
         if inst.ui_language not in ("auto", "it", "en"):
             issues.append("ui_language: invalid, reset")

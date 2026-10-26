@@ -19,6 +19,7 @@ from dj_director.ui import theme as T
 from dj_director.ui.dashboard import DashboardPage
 from dj_director.ui.settings_pages import AudioPage, CamerasPage, DirectorPage, ObsPage
 from dj_director.ui.tools_pages import LogPage, SimulationPage
+from dj_director.ui.vision_page import VisionPage
 from dj_director.ui.widgets import label
 from dj_director.ui.wizard import SetupWizard
 
@@ -64,6 +65,7 @@ class MainWindow(QMainWindow):
             ("Audio", AudioPage(ctrl)),
             ("OBS", ObsPage(ctrl)),
             ("Director", DirectorPage(ctrl)),
+            ("Vision", VisionPage(ctrl)),
             ("Simulation", SimulationPage(ctrl)),
             ("Decisions & log", LogPage(ctrl)),
         ]
@@ -79,7 +81,7 @@ class MainWindow(QMainWindow):
     def _page_changed(self, i: int) -> None:
         self.stack.setCurrentIndex(i)
         page = self.pages[i][1]
-        if hasattr(page, "reload") and i in (1,):
+        if hasattr(page, "reload") and self.pages[i][0] in ("Cameras", "Vision"):
             page.reload()          # camera list follows OBS scenes
 
     def poll(self) -> None:
@@ -127,7 +129,7 @@ def run(argv: list[str] | None = None, show_wizard: bool = True) -> int:
     app.setStyleSheet(T.STYLESHEET)
     _install_excepthook()
     ctrl = AppController()
-    set_language(ctrl.config.ui_language)
+    ctrl.vision.language = set_language(ctrl.config.ui_language)
     for issue in ctrl.config_manager.issues:
         log.warning("config: %s", issue)
     ctrl.start_services()
