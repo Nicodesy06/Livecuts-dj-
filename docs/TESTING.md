@@ -10,7 +10,7 @@ dj-director simulate --synthetic --preset natural --seed 11
 
 ## Suite automatica (eseguita in questa milestone su Linux, Python 3.13)
 
-Risultato dell'ultima esecuzione (v0.2.0): **175 test superati, 1 saltato** (`test_real_sessions`: nessuna registrazione reale presente).
+Risultato dell'ultima esecuzione (v0.2.0): **176 test superati, 1 saltato** (`test_real_sessions`: nessuna registrazione reale presente).
 
 | Area | File | Copertura |
 |---|---|---|

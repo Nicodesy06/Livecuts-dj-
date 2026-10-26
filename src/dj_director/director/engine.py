@@ -330,7 +330,13 @@ class DirectorEngine:
 
     def _reveal_ok(self, now: float, rc: Optional[Camera], cur: Camera) -> bool:
         return (rc is not None and rc.name != cur.name and not self.veto(rc)
-                and now >= self._failed_until.get(rc.name, 0) and now - rc.last_used_end >= 3.0)
+                and now >= self._failed_until.get(rc.name, 0) and now - rc.last_used_end >= 3.0
+                and not self._would_ping_pong(rc.name))
+
+    def _would_ping_pong(self, target: str) -> bool:
+        """Cutting to ``target`` would complete an A-B-A-B pattern (e.g. M-S-M-S)."""
+        h = self.history
+        return len(h) >= 3 and h[-2].camera == target and h[-3].camera == h[-1].camera
 
     def coverage_targets(self) -> dict[str, float]:
         """Soft targets, renormalised over the classes that actually have usable cameras."""
@@ -587,7 +593,7 @@ class DirectorEngine:
                                 deadline=min(deadline, now + 1.0))
         trig, trig_ev = self._music_trigger()
         rc = self.reveal_camera()
-        if (trig_ev is not None and trig_ev.kind == "reentry" and tos >= 0.5 * sp.min
+        if (trig_ev is not None and trig_ev.kind == "reentry" and tos >= sp.min
                 and self._reveal_ok(now, rc, cur) and rc.allows(state.value)):
             timing, target_t = self._timing(now, snap, urgent=True, deadline=deadline)
             return self._commit(now, rc.name, f"exit: drop reveal on {rc.name} ({trig_ev.confidence:.2f})",

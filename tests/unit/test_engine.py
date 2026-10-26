@@ -332,12 +332,25 @@ def test_drop_from_a_detail_insert_opens_on_the_reveal():
     e = make(4)
     e.tick(0, snap(0))
     e.force("D", 1.0, "test")
-    run(e, 3.0, start=1.05)                    # past half the detail minimum
-    ev = MusicEvent(4.1, "reentry", 0.9)
-    ds = run(e, 2, state_fn=lambda t: MusicState.REENTRY, events_fn=lambda t: (ev,) if t == 4.1 else (),
-             start=4.1)
+    run(e, 5.2, start=1.05)                    # past the detail minimum (5 s): a hard rule, also for drops
+    ev = MusicEvent(6.3, "reentry", 0.9)
+    ds = run(e, 2, state_fn=lambda t: MusicState.REENTRY, events_fn=lambda t: (ev,) if t == 6.3 else (),
+             start=6.3)
     sw = switches(ds)
     assert sw and sw[0].candidate_camera == "B" and sw[0].reason.startswith("exit: drop reveal on B")
+
+
+def test_drop_reveal_never_completes_a_ping_pong():
+    e = make(3)                                # M, D, S: the automatic reveal is S
+    e.tick(0, snap(0))
+    e.force("S", 1.0, "test")
+    e.force("M", 12.0, "test")                 # history ... S, M: S again now would give M-S-M-S
+    run(e, 14, start=12.05)
+    ev = MusicEvent(26.1, "reentry", 0.9)
+    ds = run(e, 3, state_fn=lambda t: MusicState.REENTRY, events_fn=lambda t: (ev,) if t == 26.1 else (),
+             start=26.1)
+    sw = switches(ds)
+    assert sw and sw[0].candidate_camera != "S"
 
 
 def test_reveal_shot_is_held_back_during_the_build_up():

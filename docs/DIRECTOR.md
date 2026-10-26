@@ -125,8 +125,8 @@ L'uscita dipende soprattutto dalla **durata**.
    `pref_max`. **Mai oltre.**
 3. **Hard cap**: limite di sicurezza assoluto. L'uscita viene programmata in modo da cadere entro il
    tetto: un cambio in attesa non lo supera mai, e senza un beat utile il taglio è immediato.
-4. **Drop (re-entry)**: apre sulla camera di rivelazione (vedi *Grammatica del drop*) già a metà della
-   durata minima. Senza camera di rivelazione riporta presto al Master. Se l'inquadratura in onda è già
+4. **Drop (re-entry)**: apre sulla camera di rivelazione (vedi *Grammatica del drop*), appena superata la
+   durata minima (vincolo rigido anche per i drop). Senza camera di rivelazione riporta presto al Master. Se l'inquadratura in onda è già
    la rivelazione, resta.
 5. **Veto visivo**: se l'immagine in onda diventa inutilizzabile, l'uscita arriva entro 1 s (sul beat se
    possibile). Se è il Master a essere inutilizzabile, il regista resta sugli insert finché non torna
@@ -192,9 +192,9 @@ valida) fa solo aspettare di più prima del tentativo successivo: il regista con
   CUSTOM. Con l'opzione *Spenta* (`drop_reveal = false`) il drop torna al Master come in 0.1.3.
 - **Build-up** (stato *Attività in aumento*): la rivelazione viene **tenuta da parte**, cioè non usata
   come insert se ci sono alternative. La tensione resta sulle inquadrature strette.
-- **Drop**: taglio sulla rivelazione sul beat successivo, dal Master oppure da un insert (già a metà della
-  sua durata minima). Il cooldown non si applica, basta che la camera non sia stata in onda negli ultimi
-  3 s. Poi la rivelazione esce come ogni insert: durata pianificata, tetto, ritorno al Master.
+- **Drop**: taglio sulla rivelazione sul beat successivo, dal Master oppure da un insert che abbia superato
+  la sua durata minima. Il cooldown non si applica, basta che la camera non sia stata in onda negli ultimi
+  3 s e che il taglio non completi uno schema A-B-A-B. Altrimenti il drop sceglie un'altra camera. Poi la rivelazione esce come ogni insert: durata pianificata, tetto, ritorno al Master.
 
 ## Rivalidazione
 
