@@ -10,7 +10,7 @@
  FeatureExtractor → BeatTracker → MusicStateEstimator  ⇒  MusicSnapshot + MusicEvent
         │
         ▼  thread "director" (20 Hz) — unico thread che modifica l'engine
- DirectorEngine: A) opportunità  B) destinazione  C) timing  ⇒  DirectorDecisionEvent
+ DirectorEngine: Entry (sul Master) | Exit (sulla secondaria) + budget di copertura + timing ⇒  DirectorDecisionEvent
         │ SWITCH
         ▼  coda a slot singolo, thread "obs-commands"
  ObsController → ObsClient (obs-websocket 5.x) → SetCurrentProgramScene
@@ -72,5 +72,5 @@
 | Downbeat | **Euristica sperimentale** (variazione armonica per posizione nella battuta) |
 | Confini di frase | **Euristica**: griglia di 4/8 battute prevista dall'ultimo drop rilevato |
 | Stati musicali ed eventi | **Regole esplicite** con soglie, isteresi e confidenza; ipotesi, non etichette musicologiche |
-| Director | **Regole + scoring deterministici**; casualità solo da RNG con seed |
+| Director | **Regole + scoring deterministici**; nessun numero casuale: variazione da sequenza del rapporto aureo con seed (v0.1.3) |
 | Modelli neurali | **Nessuno** in v0.1. Nulla viene presentato come "AI" quando è una regola o un timer |

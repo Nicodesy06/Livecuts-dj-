@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterable, Optional
 
-from dj_director.config.schema import CameraConfig, CameraRole
+from dj_director.config.schema import COVER_MASTER, ROLE_COVERAGE, CameraConfig, CameraRole
 
 
 @dataclass
@@ -17,8 +17,9 @@ class Camera:
     weight: float
     priority: int
     min_duration: float
-    mean_duration: float
-    max_duration: float
+    pref_min: float
+    pref_max: float
+    hard_cap: float                # 0 = class default (secondaries) / none (master)
     cooldown: float
     allowed_states: frozenset[str] = frozenset()
     enabled: bool = True
@@ -30,11 +31,15 @@ class Camera:
 
     @classmethod
     def from_config(cls, c: CameraConfig) -> "Camera":
-        mn, mean, mx, cool = c.durations()
+        d = c.durations()
         return cls(name=c.scene_name, role=c.role, is_master=c.is_master, fallback=c.fallback,
-                   weight=c.weight, priority=c.priority, min_duration=mn, mean_duration=mean,
-                   max_duration=mx, cooldown=cool, allowed_states=frozenset(c.allowed_states),
-                   enabled=c.enabled, uuid=c.scene_uuid)
+                   weight=c.weight, priority=c.priority, min_duration=d.min, pref_min=d.pref_min,
+                   pref_max=d.pref_max, hard_cap=d.hard_cap, cooldown=d.cooldown,
+                   allowed_states=frozenset(c.allowed_states), enabled=c.enabled, uuid=c.scene_uuid)
+
+    @property
+    def coverage_class(self) -> str:
+        return COVER_MASTER if self.is_master else ROLE_COVERAGE.get(self.role, "side")
 
     @property
     def usable(self) -> bool:
@@ -80,8 +85,8 @@ class CameraRegistry:
         for c in self._cams.values():
             if c.fallback and c.usable:
                 return c
-        order = [CameraRole.WIDE, CameraRole.SIDE, CameraRole.CUSTOM, CameraRole.OVERHEAD,
-                 CameraRole.DETAIL]
+        order = [CameraRole.WIDE, CameraRole.SIDE, CameraRole.BEHIND, CameraRole.CUSTOM,
+                 CameraRole.OVERHEAD, CameraRole.DETAIL]
         for role in order:
             for c in self._cams.values():
                 if c.role == role and c.usable:

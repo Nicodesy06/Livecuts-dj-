@@ -76,6 +76,27 @@ def test_all_engine_reasons_translate(synth_124):
     run(e, 10)
     reasons.add(e.on_external_change("Cam X", 10.0).reason)
     reasons |= {d.reason for d in run(e, 5, start=10.05)}
+    # 0.1.3 scenarios: visual novelty, continuity, drop return, hard cap, chains, revalidation
+    from dj_director.core.events import MusicEvent, MusicState
+    from tests.unit.test_engine import snap
+    level = {"v": 0.1}
+    e = make(4, "dynamic", visual=lambda cam: level["v"] if cam.name == "D" else 0.1)
+    reasons |= {d.reason for d in run(e, 20)}
+    level["v"] = 0.95
+    reasons |= {d.reason for d in run(e, 600, state_fn=lambda t: MusicState.TRANSITION if t % 90 < 30
+                                       else MusicState.STABLE_GROOVE, start=20.0)}
+    e = make(3)
+    e.tick(0, snap(0))
+    e.force("D", 1.0, "test")
+    ev = MusicEvent(7.0, "reentry", 0.9)
+    reasons |= {d.reason for d in run(e, 30, events_fn=lambda t: (ev,) if t == 7.0 else (), start=1.05)}
+    e = make(3)
+    e.tick(0, snap(0))
+    e.force("S", 1.0, "test")
+    reasons |= {d.reason for d in run(e, 40, beat_conf=0.1, start=1.05)}
+    e = make(3, cams_over={"D": {"allowed_states": ["stable_groove"]}, "S": {"allowed_states": ["stable_groove"]}})
+    run(e, 40)
+    reasons |= {d.reason for d in run(e, 60, state_fn=lambda t: MusicState.SPARSE, start=40.0)}
     bad = {f for r in reasons for f in untranslated_fragments(r)}
     assert not bad, bad
     assert "inquadratura" in tr_reason("shot length 30s of ~32s planned")

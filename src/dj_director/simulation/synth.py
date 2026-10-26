@@ -127,3 +127,54 @@ def generate(sections=None, bpm: float = 124.0, sr: int = 44100, seed: int = 1,
     peak = float(np.max(np.abs(out))) or 1.0
     out = (out / peak * 0.7).astype(np.float32)
     return SynthTrack(out, sr, bpm, np.array(beat_times), np.array(downbeats), secs)
+
+
+def track_sections(variant: int) -> list[Section]:
+    """A few arrangement variants so a long mix does not repeat one structure."""
+    base = [
+        [Section("intro", 8, ("kick", "hat")), Section("groove", 16, ("kick", "hat", "clap", "bass")),
+         Section("breakdown", 8, ("pad", "hat"), 0.8), Section("build", 8, ("pad", "hat", "riser", "clap"), 0.9),
+         Section("drop", 16, ("kick", "hat", "clap", "bass", "pad")), Section("outro", 8, ("kick", "hat"))],
+        [Section("intro", 16, ("kick",)), Section("groove", 24, ("kick", "hat", "bass")),
+         Section("peak", 16, ("kick", "hat", "clap", "bass", "pad")), Section("breakdown", 8, ("pad",), 0.7),
+         Section("drop", 16, ("kick", "hat", "clap", "bass")), Section("outro", 8, ("kick", "hat"))],
+        [Section("intro", 8, ("kick", "hat")), Section("groove", 32, ("kick", "hat", "clap", "bass")),
+         Section("breakdown", 16, ("pad", "hat"), 0.8), Section("drop", 24, ("kick", "hat", "clap", "bass", "pad")),
+         Section("outro", 8, ("kick", "hat"))],
+    ]
+    return base[variant % len(base)]
+
+
+def generate_mix(bpms=(122.0, 124.0, 124.0, 126.0, 128.0, 128.0), sr: int = 44100, seed: int = 3,
+                 overlap_bars: int = 16) -> SynthTrack:
+    """A long DJ-style session: several tracks blended with equal-power crossfades.
+
+    Each incoming track starts on a bar line of the outgoing one and the mix
+    point covers ``overlap_bars`` bars, like a DJ transition (tempi differ a little
+    between tracks, as when the DJ nudges the tempo up during a set).
+    """
+    out = np.zeros(0, dtype=np.float32)
+    beats, downbeats, secs = [], [], []
+    t_off = 0.0
+    for i, bpm in enumerate(bpms):
+        tr = generate(track_sections(i), bpm=bpm, sr=sr, seed=seed + i, timbre=1.0 + 0.06 * (i % 4))
+        a = tr.audio
+        if len(out) == 0:
+            out = a.copy()
+            start = 0.0
+        else:
+            ov = int(overlap_bars * 4 * 60.0 / bpms[i - 1] * sr)
+            ov = min(ov, len(out), len(a))
+            start_i = len(out) - ov
+            start = start_i / sr
+            fade = np.linspace(0, np.pi / 2, ov, dtype=np.float32)
+            mixed = out[start_i:] * np.cos(fade) + a[:ov] * np.sin(fade)
+            out = np.concatenate([out[:start_i], mixed, a[ov:]])
+            secs.append(("transition", start, start + ov / sr))
+        beats.extend(b + start for b in tr.beat_times)
+        downbeats.extend(d + start for d in tr.downbeat_times)
+        secs.extend((f"t{i + 1}-{n}", a0 + start, b0 + start) for n, a0, b0 in tr.sections)
+        t_off = start
+    peak = float(np.max(np.abs(out))) or 1.0
+    return SynthTrack((out / peak * 0.7).astype(np.float32), sr, float(bpms[0]),
+                      np.array(sorted(beats)), np.array(sorted(downbeats)), secs)

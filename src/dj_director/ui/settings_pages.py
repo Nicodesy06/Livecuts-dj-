@@ -44,7 +44,8 @@ def page_scaffold(title: str, subtitle: str) -> tuple[QWidget, QVBoxLayout]:
 
 # =========================================================================== cameras
 class CamerasPage(QWidget):
-    COLS = ["Use", "OBS scene", "Role", "Master", "Weight", "Min s", "Mean s", "Max s", "Cooldown s", "Status"]
+    COLS = ["Use", "OBS scene", "Role", "Master", "Weight", "Min s", "Pref. min s", "Pref. max s", "Hard cap s",
+            "Cooldown s", "Status"]
 
     def __init__(self, ctrl: AppController) -> None:
         super().__init__()
@@ -73,13 +74,15 @@ class CamerasPage(QWidget):
         self.table.verticalHeader().setDefaultSectionSize(44)
         self.table.setStyleSheet("QTableWidget QDoubleSpinBox, QTableWidget QComboBox { padding: 2px 6px;"
                                  " margin: 4px; border-radius: 6px; }")
-        for col, w in ((0, 50), (2, 130), (3, 70), (9, 130)):
+        for col, w in ((0, 50), (2, 130), (3, 70), (10, 130)):
             self.table.setColumnWidth(col, w)
-        for col in range(4, 9):
+        for col in range(4, 10):
             self.table.setColumnWidth(col, 100)
         v.addWidget(self.table)
-        v.addWidget(label(tr("Role defaults (Natural): MASTER 8–90 s (mean 36), DETAIL 5–15 s, SIDE/WIDE 7–25 s, "
-                          "OVERHEAD 5–18 s. Cooldown = minimum time before an insert is reused."), "Faint", wrap=True))
+        v.addWidget(label(tr("Role defaults (Natural): MASTER preferred 20–50 s, no rigid maximum · DETAIL / OVERHEAD "
+                          "preferred 6–10 s, hard cap 12–15 s · SIDE / BEHIND / WIDE preferred 10–18 s, hard cap "
+                          "20–25 s. Coverage budget: master 70 %, detail 15 %, side 15 % over 5 minutes. "
+                          "Cooldown = minimum time before an insert is reused."), "Faint", wrap=True))
         v.addStretch()
         self.btn_refresh.clicked.connect(self.reload)
         self.btn_save.clicked.connect(self.save)
@@ -113,16 +116,26 @@ class CamerasPage(QWidget):
             master.setChecked(bool(c and c.is_master))
             self.table.setCellWidget(r, 3, self._center(master))
             self.table.setCellWidget(r, 4, self._dspin(c.weight if c else 1.0, 0, 3, 0.1))
-            for col, attr in ((5, "min_duration"), (6, "mean_duration"), (7, "max_duration")):
-                self.table.setCellWidget(r, col, self._dspin(getattr(c, attr) if c else 0.0, 0, 1800, 1))
-            self.table.setCellWidget(r, 8, self._dspin(c.cooldown if c else -1.0, -1, 600, 1))
+            for col, val in zip((5, 6, 7, 8), self._duration_cells(c)):
+                self.table.setCellWidget(r, col, self._dspin(val, 0, 1800, 1))
+            self.table.setCellWidget(r, 9, self._dspin(c.cooldown if c else -1.0, -1, 600, 1))
             present = name in obs_scenes
             st = QTableWidgetItem(tr("in OBS") if present else (tr("missing in OBS") if obs_scenes else tr("OBS offline")))
             st.setForeground(Qt.green if present else Qt.yellow)
             st.setFlags(Qt.ItemIsEnabled)
-            self.table.setItem(r, 9, st)
+            self.table.setItem(r, 10, st)
         self.status.setText(tr("{0} scenes in OBS").format(len(obs_scenes)) if obs_scenes else
                             tr("OBS not connected: showing saved cameras only"))
+
+    @staticmethod
+    def _duration_cells(c) -> tuple[float, float, float, float]:
+        """Min / preferred min / preferred max / hard cap to show; legacy 0.1.x values converted."""
+        if c is None:
+            return 0.0, 0.0, 0.0, 0.0
+        pmin, pmax = c.preferred_min, c.preferred_max
+        if not (pmin or pmax) and c.mean_duration:
+            pmin, pmax = round(c.mean_duration * 0.8, 1), round(c.mean_duration * 1.2, 1)
+        return c.min_duration, pmin, pmax, c.hard_cap or c.max_duration
 
     @staticmethod
     def _guess_role(name: str) -> CameraRole:
@@ -130,7 +143,9 @@ class CamerasPage(QWidget):
         for key, role in (("master", CameraRole.MASTER), ("main", CameraRole.MASTER),
                           ("mixer", CameraRole.DETAIL), ("detail", CameraRole.DETAIL),
                           ("hand", CameraRole.DETAIL), ("deck", CameraRole.DETAIL),
-                          ("side", CameraRole.SIDE), ("wide", CameraRole.WIDE),
+                          ("side", CameraRole.SIDE), ("later", CameraRole.SIDE), ("wide", CameraRole.WIDE),
+                          ("behind", CameraRole.BEHIND), ("back", CameraRole.BEHIND), ("dietro", CameraRole.BEHIND),
+                          ("retro", CameraRole.BEHIND),
                           ("crowd", CameraRole.WIDE), ("top", CameraRole.OVERHEAD),
                           ("overhead", CameraRole.OVERHEAD)):
             if key in n:
@@ -164,12 +179,18 @@ class CamerasPage(QWidget):
             use = self.table.cellWidget(r, 0).findChild(QCheckBox).isChecked()
             name = self.table.item(r, 1).text()
             role = CameraRole(self.table.cellWidget(r, 2).currentText())
-            vals = [self.table.cellWidget(r, c).value() for c in (4, 5, 6, 7, 8)]
+            vals = [self.table.cellWidget(r, c).value() for c in (4, 5, 6, 7, 8, 9)]
             if not use and r != master_row:
                 continue
-            cams.append(CameraConfig(scene_name=name, role=role, enabled=use, is_master=(r == master_row),
-                                     weight=vals[0], min_duration=vals[1], mean_duration=vals[2],
-                                     max_duration=vals[3], cooldown=vals[4]))
+            # start from the existing entry so fields not shown here (priority, fallback,
+            # allowed states, scene UUID) survive a save
+            old = next((c for c in self.ctrl.config.cameras if c.scene_name == name), None)
+            cam = copy.deepcopy(old) if old is not None else CameraConfig(scene_name=name)
+            cam.role, cam.enabled, cam.is_master = role, use, (r == master_row)
+            cam.weight, cam.min_duration = vals[0], vals[1]
+            cam.preferred_min, cam.preferred_max, cam.hard_cap, cam.cooldown = vals[2], vals[3], vals[4], vals[5]
+            cam.mean_duration = cam.max_duration = 0.0      # legacy fields now expressed by the new ones
+            cams.append(cam)
         if cams and not any(c.is_master for c in cams):
             m = next((c for c in cams if c.role == CameraRole.MASTER), None)
             if m is None:
@@ -484,9 +505,16 @@ PARAM_LABELS = {
     "sync_confidence": ("Min beat confidence for beat sync", 0.0, 1.0, 0.05),
     "downbeat_confidence": ("Min downbeat confidence (heuristic)", 0.0, 1.0, 0.05),
     "max_sync_wait": ("Max wait for beat sync (s)", 0.0, 8.0, 0.1),
-    "hysteresis": ("Hysteresis (resistance to change)", 0.0, 2.0, 0.05),
-    "variety_jitter": ("Variety randomness", 0.0, 1.0, 0.05),
+    "hysteresis": ("Resistance to chaining two inserts", 0.0, 2.0, 0.05),
     "max_phrase_wait": ("Max wait for a phrase boundary (s)", 0.0, 30.0, 0.5),
+    "coverage_master": ("Coverage target: master", 0.0, 1.0, 0.01),
+    "coverage_detail": ("Coverage target: detail", 0.0, 1.0, 0.01),
+    "coverage_side": ("Coverage target: side / behind", 0.0, 1.0, 0.01),
+    "coverage_window": ("Coverage window (s)", 60.0, 1800.0, 30.0),
+    "coverage_gain": ("Coverage budget strength", 0.0, 3.0, 0.05),
+    "detail_hard_cap": ("Detail hard cap (s)", 12.0, 15.0, 0.5),
+    "side_hard_cap": ("Side hard cap (s)", 20.0, 25.0, 0.5),
+    "visual_novelty_threshold": ("Visual novelty threshold", 0.05, 1.0, 0.05),
 }
 
 
@@ -589,6 +617,8 @@ class DirectorPage(QWidget):  # noqa: D101
         g.addWidget(self.prefer_db, len(PARAM_LABELS) // 2 + 1, 0, 1, 2)
         self.phrase = QCheckBox(tr("Cut on 4/8-bar phrase boundaries after a drop"))
         g.addWidget(self.phrase, len(PARAM_LABELS) // 2 + 1, 2, 1, 2)
+        self.editorial = QCheckBox(tr("Editorial inserts also in stable music (on musical boundaries)"))
+        g.addWidget(self.editorial, len(PARAM_LABELS) // 2 + 2, 0, 1, 4)
         v.addWidget(self.adv)
 
         row = QHBoxLayout()
@@ -617,6 +647,7 @@ class DirectorPage(QWidget):  # noqa: D101
             w.setValue(getattr(params, k))
         self.prefer_db.setChecked(params.prefer_downbeat)
         self.phrase.setChecked(params.phrase_sync)
+        self.editorial.setChecked(params.editorial_cuts)
         if not keep_overrides:
             self.adv.setChecked(False)
 
@@ -679,6 +710,8 @@ class DirectorPage(QWidget):  # noqa: D101
                 d.overrides["prefer_downbeat"] = self.prefer_db.isChecked()
             if self.phrase.isChecked() != base.phrase_sync:
                 d.overrides["phrase_sync"] = self.phrase.isChecked()
+            if self.editorial.isChecked() != base.editorial_cuts:
+                d.overrides["editorial_cuts"] = self.editorial.isChecked()
         self.ctrl.apply_config(cfg)
 
     def refresh(self, s: AppSnapshot) -> None:

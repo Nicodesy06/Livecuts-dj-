@@ -110,12 +110,18 @@ basso a sinistra.
 
 | Ruolo | Che inquadratura è | Come la usa il regista |
 |---|---|---|
-| **MASTER** | L'inquadratura principale del DJ, frontale e abbastanza larga | È l'"ancora": la più usata (60–75% del tempo), con riprese lunghe (30–90 s) |
-| **DETAIL** | Mani, mixer, piatti, controller | Inserti brevi (5–15 s), soprattutto durante i mix e i breakdown |
-| **SIDE** | Laterale sul DJ | Inserti medi (7–25 s) |
-| **WIDE** | Campo largo, pubblico, sala | Inserti medi, preferiti sui drop |
-| **OVERHEAD** | Dall'alto sulla consolle | Inserti brevi, durante le transizioni |
-| **CUSTOM** | Qualsiasi altra | Uso neutro |
+| **MASTER** | L'inquadratura principale del DJ, frontale e abbastanza larga | È l'"ancora": la più usata (~70% del tempo), con riprese di solito da 20–50 s, senza un massimo rigido |
+| **DETAIL** | Mani, mixer, piatti, controller | Inserti brevi: 6–10 s, mai oltre 14 s (regolabile 12–15). Soprattutto durante i mix e i breakdown |
+| **SIDE** | Laterale sul DJ | Inserti medi: 10–18 s, mai oltre 22 s (regolabile 20–25) |
+| **BEHIND** | Da dietro il DJ, verso la sala | Come SIDE, preferita sulle ripartenze |
+| **WIDE** | Campo largo, pubblico, sala | Come SIDE, preferita sui drop |
+| **OVERHEAD** | Dall'alto sulla consolle | Come DETAIL, durante le transizioni |
+| **CUSTOM** | Qualsiasi altra | Uso neutro (conta come SIDE) |
+
+Il regista distribuisce il tempo con un **budget di copertura** su una finestra mobile di 5 minuti:
+**Master 70%**, **Detail 15%** (DETAIL + OVERHEAD), **Side 15%** (SIDE, BEHIND, WIDE, CUSTOM). È una quota
+*morbida*: orienta le scelte ma non provoca tagli per inseguire i numeri. La copertura attuale si vede in
+Dashboard.
 
 Puoi avere più camere con lo stesso ruolo. Serve **un solo Master**.
 
@@ -198,9 +204,15 @@ Premi **Stop** in DJ Director, poi ferma la registrazione in OBS.
 
 ![Pagina Camere](images/camere.png)
 
-L'elenco delle scene di OBS. Per ciascuna: **Usa**, **Ruolo**, **Master**, **Peso** (più alto = scelta più
-spesso) e, facoltative, le durate (**Min**, **Media**, **Max**) e il **Cooldown** (tempo minimo prima di
-riusare un inserto). Lascia "predefinito" se non hai esigenze particolari. Premi **Salva mappa camere**.
+L'elenco delle scene di OBS. Per ciascuna: **Usa**, **Scena OBS**, **Ruolo**, **Master**, **Peso** (più alto
+= scelta più spesso). Seguono, facoltative, le durate:
+- **Min**: durata minima;
+- **Pref. min** e **Pref. max**: la finestra preferita, dentro cui il regista sceglie la lunghezza;
+- **Hard cap**: il tetto assoluto, mai superato;
+- **Cooldown**: il tempo minimo prima di riusare un inserto.
+
+Lascia "predefinito" per usare i valori del ruolo. Premi **Salva mappa camere**. Le configurazioni create
+con le versioni precedenti (colonne *Media* e *Max*) vengono convertite automaticamente.
 Se rinomini una scena in OBS, DJ Director aggiorna il nome da solo.
 
 ### Audio
@@ -234,8 +246,14 @@ Host, porta e password (salvata **cifrata** con la protezione di Windows), più 
 - **Comportamento**: cosa fare con un cambio manuale in OBS, quanto rispettarlo, cosa fare se manca
   l'audio, offset di sincronizzazione e lingua dell'interfaccia.
 - **Calibrazione della sincronizzazione**: vedi il capitolo 9.
-- **Avanzate**: tutti i parametri del motore (soglia di taglio, durate, tagli massimi al minuto, attesa
-  per i confini di frase…). Non servono per ottenere un buon risultato.
+- **Avanzate**: tutti i parametri del motore. Tra questi:
+  - soglia di taglio, scale delle durate, tagli massimi al minuto, attesa per i confini di frase;
+  - **budget di copertura**: finestra, target Master / Detail / Side e quanto pesa (*guadagno*);
+  - **hard cap** di classe per Detail (12–15 s) e Side (20–25 s);
+  - **tagli editoriali**, cioè tagli anche con musica stabile;
+  - soglia di **novità visiva**.
+
+  Non servono per ottenere un buon risultato.
 
 ### Simulazione
 
@@ -278,15 +296,28 @@ Valori tipici: da 40 a 150 ms.
 
 ## 10. Come ragiona il regista (in breve)
 
-- **Non taglia a tempo.** Ogni inquadratura ha una durata "prevista", diversa ogni volta, e il taglio
-  avviene quando ha senso musicalmente.
-- **Ascolta la musica.** Un drop, un breakdown o l'inizio di un mix sono buoni momenti per cambiare.
-  Durante un mix preferisce il dettaglio del mixer, su un drop il campo largo o il master.
-- **Taglia sul beat**, e dopo un drop sui **confini di frase** (ogni 4 o 8 battute), quando è sicuro del
-  ritmo. Se non lo è, non finge precisione.
-- **Torna al Master** con naturalezza, senza schemi meccanici e senza ping-pong tra due camere.
+- **Il Master è casa.** Ogni taglio entra su una camera secondaria oppure ne esce, tornando quasi sempre
+  al Master. L'ingresso e l'uscita seguono regole diverse.
+- **Entra per un motivo.** Un ingresso nasce da:
+  - un'opportunità musicale (drop, breakdown, inizio di un mix);
+  - una *novità* visiva;
+  - una ragione editoriale: il Master è in onda da abbastanza tempo e ha avuto la sua parte.
+
+  Mai a tempo fisso.
+- **Esce per durata.** Ogni inserto ha una lunghezza pianificata dentro la sua finestra (Detail 6–10 s,
+  Side 10–18 s), diversa ogni volta. Può allungarsi fino al limite della finestra se il momento lo
+  giustifica, ma **non supera mai il tetto** (14 s / 22 s). Su un drop torna presto al Master.
+- **Novità, non presenza.** Le mani sempre appoggiate sul mixer non sono un motivo per restare sul
+  dettaglio: conta solo un cambiamento rispetto a quello che la camera mostrava poco prima.
+- **Budget di copertura.** Tiene d'occhio le proporzioni degli ultimi 5 minuti (70/15/15) e corregge con
+  dolcezza: inserti un po' più lunghi o più corti, Master un po' più breve o più lungo.
+- **Taglia sul beat.** I tagli editoriali cadono sui **confini di frase** (ogni 4 o 8 battute), quelli
+  musicali sul beat successivo. Se il programma non è sicuro del ritmo, non finge precisione.
+- **Niente ping-pong, niente casualità.** Non ripete subito lo stesso inserto. Le durate seguono una
+  sequenza deterministica: con la stessa musica e lo stesso seed la regia è identica.
+- **Ricontrolla prima di tagliare.** Un cambio in attesa viene annullato se la camera sparisce, se arriva
+  un intervento manuale o se il momento non è più adatto.
 - **Rispetta dei limiti**: durata minima, distanza minima tra tagli, numero massimo di tagli al minuto.
-- **Sa quando non tagliare.** Se l'inquadratura attuale va bene, la tiene.
 
 ---
 

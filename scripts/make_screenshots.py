@@ -57,7 +57,7 @@ for mod in (settings_pages, wizard):          # modules imported the functions b
     mod.list_loopback_devices = backends.list_loopback_devices
 settings_pages.loopback_available = backends.loopback_available
 
-SCENES = ["Cam Master", "Cam Mixer", "Cam Laterale", "Cam Pubblico", "Inizio a breve"]
+SCENES = ["Cam Master", "Cam Mixer", "Cam Laterale", "Cam Dietro", "Cam Pubblico", "Inizio a breve"]
 
 
 def pump(app, seconds):
@@ -103,6 +103,7 @@ def main() -> int:
     cfg.cameras = [CameraConfig("Cam Master", role=CameraRole.MASTER, is_master=True),
                    CameraConfig("Cam Mixer", role=CameraRole.DETAIL),
                    CameraConfig("Cam Laterale", role=CameraRole.SIDE),
+                   CameraConfig("Cam Dietro", role=CameraRole.BEHIND),
                    CameraConfig("Cam Pubblico", role=CameraRole.WIDE)]
     ConfigManager().save(cfg)
 

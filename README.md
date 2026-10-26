@@ -126,12 +126,16 @@ pulsante **Configurazione guidata**.
 
 | Ruolo | Inquadratura | Uso da parte del regista |
 |---|---|---|
-| **MASTER** | Principale, frontale sul DJ | L'"ancora": 60–75% del tempo, riprese da 30–90 s |
-| **DETAIL** | Mani, mixer, piatti | Inserti brevi (5–15 s), soprattutto durante i mix |
-| **SIDE** | Laterale | Inserti medi (7–25 s) |
-| **WIDE** | Campo largo, pubblico | Inserti medi, preferiti sui drop |
-| **OVERHEAD** | Dall'alto | Inserti brevi, durante le transizioni |
-| **CUSTOM** | Altro | Uso neutro |
+| **MASTER** | Principale, frontale sul DJ | L'"ancora": ~70% del tempo, riprese di solito da 20–50 s |
+| **DETAIL** | Mani, mixer, piatti | Inserti brevi (6–10 s, mai oltre 14 s), soprattutto durante i mix |
+| **SIDE** | Laterale | Inserti medi (10–18 s, mai oltre 22 s) |
+| **BEHIND** | Da dietro il DJ, verso la sala | Come SIDE, preferita sulle ripartenze |
+| **WIDE** | Campo largo, pubblico | Come SIDE, preferita sui drop |
+| **OVERHEAD** | Dall'alto | Come DETAIL, durante le transizioni |
+| **CUSTOM** | Altro | Uso neutro (classe SIDE) |
+
+Il regista mantiene un **budget di copertura** morbido su una finestra di 5 minuti: Master 70%,
+Detail 15%, Side/Behind 15%. È una tendenza, non una quota da inseguire secondo per secondo.
 
 ---
 
@@ -319,7 +323,7 @@ scheda audio.
 | Documento | Contenuto |
 |---|---|
 | [Guida all'utilizzo](docs/GUIDA_UTENTE.md) | Manuale completo per l'utente (anche in PDF nella release) |
-| [Come decide il regista](docs/DIRECTOR.md) | Opportunità, scelta della camera, timing, preset |
+| [Come decide il regista](docs/DIRECTOR.md) | Ingresso e uscita, budget di copertura, novità visiva, timing, preset |
 | [Architettura](docs/ARCHITECTURE.md) | Moduli, thread, flussi di dati |
 | [Audit tecnico](docs/TECHNICAL_AUDIT.md) | Scelte tecnologiche, librerie e rischi |
 | [Test e risultati](docs/TESTING.md) | Test automatici, misure, checklist dei test manuali |

@@ -30,9 +30,9 @@ TICK = 0.05   # director tick in simulation, s (live uses the same)
 
 
 def default_cameras(n: int = 3) -> list[CameraConfig]:
-    roles = [CameraRole.MASTER, CameraRole.DETAIL, CameraRole.SIDE, CameraRole.WIDE,
-             CameraRole.OVERHEAD]
-    names = ["Cam Master", "Cam Mixer Detail", "Cam Side", "Cam Wide", "Cam Overhead"]
+    roles = [CameraRole.MASTER, CameraRole.DETAIL, CameraRole.SIDE, CameraRole.BEHIND,
+             CameraRole.WIDE]
+    names = ["Cam Master", "Cam Mixer Detail", "Cam Side", "Cam Behind", "Cam Wide"]
     return [CameraConfig(scene_name=names[i], role=roles[i], is_master=(i == 0))
             for i in range(min(n, len(roles)))]
 
@@ -151,20 +151,23 @@ def run_replay(audio: np.ndarray, sr: int, cameras: Sequence[CameraConfig] | Non
         shots[-1].end = max(shots[-1].start, min(total, now))
 
     master = reg.master().name if reg.master() else None
-    mins = {c.name: c.min_duration * (engine.p.master_duration_scale if c is reg.anchor()
-                                      else engine.p.insert_duration_scale) for c in reg}
+    specs = {c.name: engine.spec(c) for c in reg}
+    mins = {n: sp.min for n, sp in specs.items()}
     cools = {c.name: c.cooldown for c in reg}
+    classes = {n: sp.cls for n, sp in specs.items()}
+    caps = {n: sp.cap for n, sp in specs.items()}
+    targets = engine.coverage_targets()
     metrics = compute_metrics("music-aware", shots, master, mins, cools, beat_times, section_starts,
-                              phrase_times)
+                              phrase_times, classes, caps, targets, engine.p.coverage_window)
     result = SimResult(shots, decisions, states, music_events, metrics, duration=total)
     if baselines:
         names = [c.name for c in reg]
         result.baselines["timer-12s"] = compute_metrics(
             "timer-12s", timer_baseline(names, total), master, mins, cools, None, section_starts,
-            phrase_times)
+            phrase_times, classes, caps, targets, engine.p.coverage_window)
         result.baselines["random"] = compute_metrics(
             "random", random_baseline(names, total, seed), master, mins, cools, None, section_starts,
-            phrase_times)
+            phrase_times, classes, caps, targets, engine.p.coverage_window)
     return result
 
 
@@ -173,9 +176,15 @@ def format_report(r: SimResult) -> str:
     keys = ["cuts_per_minute", "master_share", "mean_shot_s", "median_shot_s", "shortest_shot_s",
             "longest_shot_s", "duration_cv", "abab_patterns", "min_duration_violations",
             "cooldown_violations", "max_consecutive_inserts", "beat_synced_cuts",
-            "beat_alignment_median_ms", "cuts_near_section_change", "cuts_on_phrase_grid"]
+            "beat_alignment_median_ms", "cuts_near_section_change", "cuts_on_phrase_grid",
+            "hard_cap_violations", "repeated_intervals", "coverage_max_deviation"]
     w = 26
     lines = ["metric".ljust(w) + "".join(m.name.rjust(14) for m in rows)]
     for k in keys:
         lines.append(k.ljust(w) + "".join(str(getattr(m, k)).rjust(14) for m in rows))
+    for cls in ("master", "detail", "side"):
+        lines.append(f"coverage_{cls}".ljust(w) + "".join(str(m.coverage.get(cls, "-")).rjust(14) for m in rows))
+        lines.append(f"median_{cls}_s".ljust(w) + "".join(str(m.median_by_class.get(cls, "-")).rjust(14)
+                                                          for m in rows))
+        lines.append(f"max_{cls}_s".ljust(w) + "".join(str(m.max_by_class.get(cls, "-")).rjust(14) for m in rows))
     return "\n".join(lines)

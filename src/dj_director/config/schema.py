@@ -21,17 +21,51 @@ class CameraRole(str, Enum):
     SIDE = "SIDE"
     WIDE = "WIDE"
     OVERHEAD = "OVERHEAD"
+    BEHIND = "BEHIND"
     CUSTOM = "CUSTOM"
 
 
-# (min, mean, max preferred, cooldown) seconds, before preset scaling.
-ROLE_DURATIONS: dict[CameraRole, tuple[float, float, float, float]] = {
-    CameraRole.MASTER: (8.0, 36.0, 90.0, 0.0),
-    CameraRole.DETAIL: (5.0, 9.0, 15.0, 20.0),
-    CameraRole.SIDE: (7.0, 15.0, 25.0, 15.0),
-    CameraRole.WIDE: (7.0, 15.0, 25.0, 15.0),
-    CameraRole.OVERHEAD: (5.0, 10.0, 18.0, 20.0),
-    CameraRole.CUSTOM: (6.0, 12.0, 20.0, 15.0),
+# Editorial coverage classes used by the coverage budget (soft quota).
+COVER_MASTER, COVER_DETAIL, COVER_SIDE = "master", "detail", "side"
+ROLE_COVERAGE: dict[CameraRole, str] = {
+    CameraRole.MASTER: COVER_MASTER,
+    CameraRole.DETAIL: COVER_DETAIL,
+    CameraRole.OVERHEAD: COVER_DETAIL,
+    CameraRole.SIDE: COVER_SIDE,
+    CameraRole.BEHIND: COVER_SIDE,
+    CameraRole.WIDE: COVER_SIDE,
+    CameraRole.CUSTOM: COVER_SIDE,
+}
+
+# Hard-cap ranges per coverage class (configurable within these bounds). Master: no rigid maximum.
+HARD_CAP_RANGE = {COVER_DETAIL: (12.0, 15.0), COVER_SIDE: (20.0, 25.0)}
+
+
+@dataclass(frozen=True)
+class DurationSpec:
+    """Shot-length grammar of a camera (seconds, before preset scaling).
+
+    min        hard minimum before any cut away (except safety cases)
+    pref_min / pref_max   preferred window: exits are planned inside it
+    hard_cap   absolute maximum for secondary cameras (0 = none, i.e. master)
+    cooldown   minimum time before the camera is used again (secondaries)
+    """
+    min: float
+    pref_min: float
+    pref_max: float
+    hard_cap: float
+    cooldown: float
+
+
+# (min, preferred min, preferred max, hard cap [0 = class default / none], cooldown)
+ROLE_DURATIONS: dict[CameraRole, tuple[float, float, float, float, float]] = {
+    CameraRole.MASTER: (12.0, 20.0, 50.0, 0.0, 0.0),
+    CameraRole.DETAIL: (5.0, 6.0, 10.0, 0.0, 20.0),
+    CameraRole.OVERHEAD: (5.0, 6.0, 10.0, 0.0, 20.0),
+    CameraRole.SIDE: (7.0, 10.0, 18.0, 0.0, 15.0),
+    CameraRole.BEHIND: (7.0, 10.0, 18.0, 0.0, 15.0),
+    CameraRole.WIDE: (7.0, 10.0, 18.0, 0.0, 15.0),
+    CameraRole.CUSTOM: (7.0, 10.0, 18.0, 0.0, 15.0),
 }
 
 # Numeric ranges: field name -> (min, max). Used for clamping.
@@ -45,6 +79,9 @@ _RANGES: dict[str, tuple[float, float]] = {
     "min_duration": (0.0, 600),
     "mean_duration": (0.0, 900),
     "max_duration": (0.0, 1800),
+    "preferred_min": (0.0, 900),
+    "preferred_max": (0.0, 900),
+    "hard_cap": (0.0, 1800),
     "cooldown": (-1.0, 600),
     "sample_rate": (0, 384000),
     "block_size": (64, 8192),
@@ -71,6 +108,14 @@ _RANGES: dict[str, tuple[float, float]] = {
     "hysteresis": (0.0, 2.0),
     "variety_jitter": (0.0, 1.0),
     "max_phrase_wait": (0.0, 30.0),
+    "coverage_window": (60.0, 1800.0),
+    "coverage_master": (0.0, 1.0),
+    "coverage_detail": (0.0, 1.0),
+    "coverage_side": (0.0, 1.0),
+    "coverage_gain": (0.0, 3.0),
+    "detail_hard_cap": HARD_CAP_RANGE[COVER_DETAIL],
+    "side_hard_cap": HARD_CAP_RANGE[COVER_SIDE],
+    "visual_novelty_threshold": (0.05, 1.0),
 }
 
 
@@ -116,18 +161,34 @@ class CameraConfig:
     weight: float = 1.0
     priority: int = 5
     min_duration: float = 0.0         # 0 = role default
-    mean_duration: float = 0.0
-    max_duration: float = 0.0
+    mean_duration: float = 0.0        # legacy (<= 0.1.2): mapped to a preferred window
+    max_duration: float = 0.0         # legacy (<= 0.1.2): mapped to the hard cap
     cooldown: float = -1.0            # <0 = role default
     allowed_states: list[str] = field(default_factory=list)  # empty = all states
+    preferred_min: float = 0.0        # 0 = role default
+    preferred_max: float = 0.0
+    hard_cap: float = 0.0             # 0 = class default (secondaries) / none (master)
 
-    def durations(self) -> tuple[float, float, float, float]:
-        rmin, rmean, rmax, rcool = ROLE_DURATIONS[self.role]
+    @property
+    def coverage_class(self) -> str:
+        return COVER_MASTER if self.is_master else ROLE_COVERAGE[self.role]
+
+    def durations(self) -> DurationSpec:
+        """Effective duration grammar, honouring legacy fields from older configs."""
+        rmin, rpmin, rpmax, rcap, rcool = ROLE_DURATIONS[self.role]
         mn = self.min_duration or rmin
-        mean = max(self.mean_duration or rmean, mn)
-        mx = max(self.max_duration or rmax, mean)
+        if self.preferred_min or self.preferred_max:
+            pmin = self.preferred_min or rpmin
+            pmax = self.preferred_max or rpmax
+        elif self.mean_duration:                     # 0.1.x config: a mean length
+            pmin, pmax = self.mean_duration * 0.8, self.mean_duration * 1.2
+        else:
+            pmin, pmax = rpmin, rpmax
+        pmin = max(pmin, mn)
+        pmax = max(pmax, pmin)
+        cap = self.hard_cap or self.max_duration or rcap      # legacy max -> hard cap
         cool = rcool if self.cooldown < 0 else self.cooldown
-        return mn, mean, mx, cool
+        return DurationSpec(mn, pmin, pmax, cap, cool)
 
 
 @dataclass
@@ -136,7 +197,8 @@ class DirectorParams:
     cut_threshold: float = 1.0
     master_duration_scale: float = 1.0
     insert_duration_scale: float = 1.0
-    duration_spread: float = 0.35     # lognormal sigma of sampled shot lengths
+    duration_spread: float = 1.0      # share of the preferred window explored by the (deterministic)
+                                      # variety sequence: 0 = always the centre, 1 = whole window
     min_cut_gap: float = 5.0
     max_cuts_per_minute: float = 5.0
     max_consecutive_inserts: int = 2
@@ -146,10 +208,22 @@ class DirectorParams:
     prefer_downbeat: bool = True
     downbeat_confidence: float = 0.5
     max_sync_wait: float = 2.5
-    hysteresis: float = 0.25
-    variety_jitter: float = 0.15
+    hysteresis: float = 0.25          # resistance to chaining two secondaries without the master
+    variety_jitter: float = 0.15      # deprecated (0.1.3+): the engine uses no randomness
     phrase_sync: bool = True          # prefer predicted phrase boundaries for non-urgent cuts
     max_phrase_wait: float = 9.0      # s a non-urgent cut may wait for the next phrase boundary
+    # --- editorial coverage budget (soft quota over a sliding window)
+    coverage_window: float = 300.0    # s
+    coverage_master: float = 0.70
+    coverage_detail: float = 0.15
+    coverage_side: float = 0.15       # side / behind / wide / custom
+    coverage_gain: float = 1.0        # how strongly the budget steers decisions (0 = ignore)
+    editorial_cuts: bool = True       # keep musically-timed editorial inserts in stable music
+    # --- hard caps of secondary shots (configurable inside 12-15 s / 20-25 s)
+    detail_hard_cap: float = 14.0
+    side_hard_cap: float = 22.0
+    # --- visual opportunities: novelty of activity vs. its own baseline, never mere presence
+    visual_novelty_threshold: float = 0.35
 
 
 @dataclass

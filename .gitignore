@@ -8,3 +8,5 @@ dist/
 venv/
 *.spec.bak
 /out/
+tests/sessions/*
+!tests/sessions/README.md

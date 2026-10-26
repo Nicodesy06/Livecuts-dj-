@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import re
 import threading
 import time
 from collections import deque
@@ -90,6 +91,7 @@ class AppSnapshot:
     preset: str
     cuts_last_minute: int
     override_active: bool
+    coverage: tuple = ()               # ((class, share, target), ...) over the sliding window
 
 
 class AppController:
@@ -135,7 +137,8 @@ class AppController:
                                   no_signal_policy=d.no_signal_policy)
         seed = d.seed or int(time.time())
         return DirectorEngine(self.registry, resolve_params(d), settings, seed=seed,
-                              visual_fit=lambda cam: self.visual.score(cam.name) or 0.0)
+                              visual_fit=lambda cam: self.visual.score(cam.name) or 0.0,
+                              visual_activity=lambda cam: self.visual.activity(cam.name))
 
     def start_services(self) -> None:
         """Start audio capture/analysis and OBS connection (director stays OFF)."""
@@ -310,6 +313,8 @@ class AppController:
                             c.scene_name = new
                     if self.engine.current == old:
                         self.engine.current = new
+                    if old in self.engine._novelty:
+                        self.engine._novelty[new] = self.engine._novelty.pop(old)
                     for s in self.engine.history:
                         if s.camera == old:
                             s.camera = new
@@ -329,8 +334,11 @@ class AppController:
                     self.registry.set_available(s.name for s in self.obs.scenes)
                 self.engine = self._build_engine()
                 for attr in ("history", "cut_times", "current", "shot_start", "shot_target",
-                             "override_until", "consecutive_inserts"):
+                             "override_until", "consecutive_inserts", "_variety_index", "_novelty",
+                             "phrase_anchor", "_anchor_period"):
                     setattr(self.engine, attr, getattr(old, attr))
+                cam = self.registry.get(self.engine.current)
+                self.engine.shot_spec = self.engine.spec(cam) if cam is not None else None
 
     def _tick(self) -> None:
         st = self.status
@@ -406,11 +414,12 @@ class AppController:
 
     def _record(self, d: DirectorDecisionEvent) -> None:
         if d.action == DirectorAction.HOLD:
-            if d.reason == self._last_hold_reason and d.t - self._last_hold_logged < 15.0:
+            # HOLD reasons carry counters ("insert 7s of ~9s planned"): log the same kind of
+            # hold at most every 15 s, ignoring the numbers
+            kind = re.sub(r"[\d.]+", "#", d.reason)
+            if kind == self._last_hold_reason and d.t - self._last_hold_logged < 15.0:
                 return
-            if d.reason.split("(")[0] == self._last_hold_reason.split("(")[0] and d.t - self._last_hold_logged < 15.0:
-                return
-            self._last_hold_reason, self._last_hold_logged = d.reason, d.t
+            self._last_hold_reason, self._last_hold_logged = kind, d.t
         else:
             self._last_hold_reason = ""
         self.decisions.append(d)
@@ -437,4 +446,15 @@ class AppController:
                                   offset_ms=self.config.director.latency_offset_ms),
             preset=self.config.director.preset,
             cuts_last_minute=sum(1 for t in e.cut_times if now - t < 60),
-            override_active=now < e.override_until)
+            override_active=now < e.override_until,
+            coverage=self._coverage(now))
+
+    def _coverage(self, now: float) -> tuple:
+        e = self.engine
+        if not e.history:
+            return ()
+        try:
+            shares, targets = e.coverage(now, prior=False), e.coverage_targets()
+        except Exception:
+            return ()
+        return tuple((k, shares.get(k, 0.0), targets[k]) for k in ("master", "detail", "side") if k in targets)

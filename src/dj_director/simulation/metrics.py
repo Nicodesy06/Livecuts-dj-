@@ -50,6 +50,12 @@ class EditorialMetrics:
     cuts_near_section_change: int    # cuts within 2 s after a ground-truth section boundary
     cuts_on_phrase_grid: int = 0     # cuts within 60 ms of a ground-truth 4-bar line
     share_by_camera: dict[str, float] = field(default_factory=dict)
+    coverage: dict[str, float] = field(default_factory=dict)          # share per coverage class
+    coverage_max_deviation: Optional[float] = None   # worst |rolling share - target| (sliding window)
+    hard_cap_violations: int = 0
+    median_by_class: dict[str, float] = field(default_factory=dict)
+    max_by_class: dict[str, float] = field(default_factory=dict)
+    repeated_intervals: int = 0      # consecutive cut intervals within 0.5 s of each other
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -59,7 +65,11 @@ def compute_metrics(name: str, shots: Sequence[ShotRecord], master: Optional[str
                     min_durations: dict[str, float], cooldowns: dict[str, float],
                     beat_times: Optional[np.ndarray] = None,
                     section_starts: Sequence[float] = (),
-                    phrase_times: Optional[np.ndarray] = None) -> EditorialMetrics:
+                    phrase_times: Optional[np.ndarray] = None,
+                    classes: Optional[dict[str, str]] = None,
+                    caps: Optional[dict[str, float]] = None,
+                    targets: Optional[dict[str, float]] = None,
+                    window: float = 300.0) -> EditorialMetrics:
     shots = [s for s in shots if s.duration > 0]
     if not shots:
         return EditorialMetrics(name, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, None, 0)
@@ -98,6 +108,39 @@ def compute_metrics(name: str, shots: Sequence[ShotRecord], master: Optional[str
     on_grid = 0
     if phrase_times is not None and len(phrase_times):
         on_grid = sum(1 for s in shots[1:] if float(np.min(np.abs(phrase_times - (s.target_t or s.start)))) < 0.06)
+    cov: dict[str, float] = {}
+    med: dict[str, float] = {}
+    mx: dict[str, float] = {}
+    dev = None
+    cap_viol = 0
+    if classes:
+        by_cls: dict[str, list[float]] = {}
+        for s in shots:
+            c = classes.get(s.camera, "other")
+            cov[c] = cov.get(c, 0.0) + s.duration / total
+            by_cls.setdefault(c, []).append(s.duration)
+        for c, ds in by_cls.items():
+            inner = ds[1:-1] if len(ds) > 2 else ds     # first/last shots are truncated by the set
+            med[c] = round(statistics.median(inner), 1)
+            mx[c] = round(max(inner), 1)
+        cov = {k: round(v, 3) for k, v in cov.items()}
+        if targets and total >= window * 1.5:
+            worst = 0.0
+            t = shots[0].start + window
+            while t <= shots[-1].end:
+                acc: dict[str, float] = {}
+                for s in shots:
+                    o = min(s.end, t) - max(s.start, t - window)
+                    if o > 0:
+                        acc[classes.get(s.camera, "other")] = acc.get(classes.get(s.camera, "other"), 0) + o
+                for k, tgt in targets.items():
+                    worst = max(worst, abs(acc.get(k, 0.0) / window - tgt))
+                t += 30.0
+            dev = round(worst, 3)
+    if caps:
+        cap_viol = sum(1 for s in shots[:-1] if s.duration > caps.get(s.camera, float("inf")) + 0.25)
+    gaps = [b.start - a.start for a, b in zip(shots, shots[1:])]
+    repeated = sum(1 for g1, g2 in zip(gaps, gaps[1:]) if abs(g1 - g2) < 0.5)
     mean = statistics.fmean(durs)
     return EditorialMetrics(
         name=name, duration_s=round(total, 1), cuts=cuts,
@@ -110,7 +153,9 @@ def compute_metrics(name: str, shots: Sequence[ShotRecord], master: Optional[str
         max_consecutive_inserts=best_run, beat_synced_cuts=len(synced),
         beat_alignment_median_ms=None if align is None else round(align, 1),
         cuts_near_section_change=near, cuts_on_phrase_grid=on_grid,
-        share_by_camera={k: round(v, 3) for k, v in share.items()})
+        share_by_camera={k: round(v, 3) for k, v in share.items()},
+        coverage=cov, coverage_max_deviation=dev, hard_cap_violations=cap_viol,
+        median_by_class=med, max_by_class=mx, repeated_intervals=repeated)
 
 
 # --------------------------------------------------------------------------- baselines

@@ -113,6 +113,8 @@ class DashboardPage(QWidget):
         c.lay.addWidget(self.cur_cam)
         self.cur_detail = label("", "Muted")
         c.lay.addWidget(self.cur_detail)
+        self.coverage = label("", "Faint", wrap=True)
+        c.lay.addWidget(self.coverage)
         self.last_reason = label("", "Faint", wrap=True)
         c.lay.addWidget(self.last_reason)
         self.dir_msg = label("", "Faint", wrap=True)
@@ -262,6 +264,12 @@ class DashboardPage(QWidget):
         self.cur_detail.setText(tr("on air {0} · preset {1} · {2} cuts/min").format(
             _fmt_dur(s.time_on_shot), tr(s.preset.capitalize()), s.cuts_last_minute) if s.current_camera else
             tr("preset {0}").format(tr(s.preset.capitalize())))
+        if s.coverage:
+            names = {"master": "Master", "detail": "Detail", "side": "Side"}
+            self.coverage.setText(tr("Coverage (sliding window): ") + " · ".join(
+                f"{names[k]} {share * 100:.0f}%/{target * 100:.0f}%" for k, share, target in s.coverage))
+        else:
+            self.coverage.setText("")
         if s.last_switch:
             self.last_reason.setText(tr("Last cut → {0}: {1}").format(s.last_switch.candidate_camera, tr_reason(s.last_switch.reason)))
         else:

@@ -23,7 +23,12 @@ def _cmd_simulate(a: argparse.Namespace) -> int:
     from dj_director.simulation.synth import generate
 
     beat_times, sections, phrases = None, [], None
-    if a.synthetic or not a.file:
+    if a.mix:
+        from dj_director.simulation.synth import generate_mix
+        tr = generate_mix()
+        audio, sr, beat_times = tr.audio, tr.sr, tr.beat_times
+        src = "synthetic DJ mix (6 tracks with transitions)"
+    elif a.synthetic or not a.file:
         tr = generate(bpm=a.bpm)
         audio, sr, beat_times = tr.audio, tr.sr, tr.beat_times
         sections = [s for _, s, _ in tr.sections[1:]]
@@ -188,6 +193,7 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("simulate", help="offline replay of an audio file through the director")
     s.add_argument("file", nargs="?")
     s.add_argument("--synthetic", action="store_true")
+    s.add_argument("--mix", action="store_true", help="long synthetic DJ mix (~13 min, several tracks)")
     s.add_argument("--bpm", type=float, default=124.0)
     s.add_argument("--preset", choices=["minimal", "natural", "dynamic"])
     s.add_argument("--cameras", type=int, default=3)

@@ -3,6 +3,49 @@
 Tutte le modifiche rilevanti di DJ Director AI. Formato ispirato a
 [Keep a Changelog](https://keepachangelog.com/it/1.1.0/); versioni [SemVer](https://semver.org/lang/it/).
 
+## [0.1.3] — 2026-10-26
+
+### Cambiato — Director Engine
+- **Entry Decision e Exit Decision separate.** L'ingresso su una camera secondaria nasce da
+  un'opportunità musicale, visiva o editoriale. Cade preferibilmente su un confine metrico affidabile
+  (frase > downbeat > beat), ed è immediato se il beat non è affidabile. L'uscita è governata dalla
+  durata preferita, dal tetto assoluto, dalla continuità e dal ritorno al Master.
+- **Nuove durate per ruolo**:
+  - Detail 6–10 s con hard cap 14 s (configurabile 12–15);
+  - Side/Behind 10–18 s con hard cap 22 s (configurabile 20–25);
+  - Master in genere 20–50 s, senza un massimo rigido.
+- **Editorial Coverage Budget**: target Master 70%, Detail 15%, Side 15% su una finestra mobile di
+  5 minuti. È una quota morbida: orienta la permanenza sul Master, la scelta della camera e la lunghezza
+  degli insert, senza inseguire i numeri secondo per secondo.
+- **Novità visiva invece di presenza**: l'attività di una camera viene confrontata con la sua baseline.
+  La presenza continua (mani appoggiate sul mixer) torna a zero in pochi secondi e non può né provocare
+  tagli ripetuti né allungare un Detail.
+- **Tagli editoriali anche con musica stabile**, agganciati ai confini di frase e alla sequenza
+  (niente ripetizione immediata dello stesso inserto).
+- **Rivalidazione** di ogni cambio in attesa: il cambio viene annullato se il target sparisce o non è
+  più adatto, se arriva un override, se il segnale si perde o se la copertura è già raggiunta. Le uscite
+  non superano mai il tetto.
+- **Determinismo senza numeri casuali**: le durate variano con una sequenza del rapporto aureo, sfasata
+  dal seed. Stessi ingressi e stesso seed producono la stessa regia, e due shot consecutivi non hanno mai
+  la stessa durata pianificata.
+
+### Aggiunto
+- Ruolo **BEHIND** (camera dietro il DJ).
+- Colonne **Pref. min**, **Pref. max** e **Hard cap** nella pagina Camere.
+- Nuovi parametri avanzati: copertura, tetti di classe, tagli editoriali, soglia di novità visiva.
+- Copertura in finestra mobile nella Dashboard.
+- `simulate --mix`: set sintetico di 12.8 minuti con sei brani mixati.
+- Metriche di copertura, violazioni del tetto e intervalli ripetuti nel replay.
+- Harness per **sessioni reali** (`tests/sessions/` o `DJD_SESSIONS_DIR`).
+
+### Compatibilità
+- Le configurazioni 0.1.x si caricano senza modifiche: `mean_duration` diventa la finestra preferita
+  (0.8×–1.2×) e `max_duration` diventa l'hard cap.
+- Il collegamento a OBS è invariato (stessa allow-list di richieste).
+
+### Corretto
+- Il registro delle decisioni non ripete più lo stesso HOLD quando cambiano solo i numeri nel motivo.
+
 ## [0.1.2] — 2026-10-24
 
 ### Aggiunto

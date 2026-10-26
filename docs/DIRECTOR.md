@@ -1,94 +1,203 @@
 # Come decide il regista
 
-Codice: `src/dj_director/director/engine.py`. A ogni tick (20 Hz) l'engine riceve tempo, ultimo
-`MusicSnapshot` ed eventi musicali, e restituisce **una** `DirectorDecisionEvent`:
-`HOLD`, `SCHEDULE`, `SWITCH`, `CANCEL` o `OVERRIDE`, sempre con un motivo costruito dai fattori
-realmente usati.
+Codice: `src/dj_director/director/engine.py`. A ogni tick (20 Hz) l'engine riceve il tempo, l'ultimo
+`MusicSnapshot` e gli eventi musicali, e restituisce **una** `DirectorDecisionEvent`:
+`HOLD`, `SCHEDULE`, `SWITCH`, `CANCEL` o `OVERRIDE`. Ogni decisione porta un motivo costruito dai fattori
+realmente usati. L'engine non parla mai con OBS: chi lo chiama esegue gli `SWITCH` e riporta l'esito.
+
+Dalla v0.1.3 il modello editoriale separa **ingresso** e **uscita**. Il Master è la "casa". Un taglio
+può essere solo di due tipi:
+
+- **entra** su una camera secondaria, partendo dal Master;
+- **esce** dalla secondaria, quasi sempre tornando al Master.
+
+Le due decisioni seguono regole diverse.
 
 ## Priorità per tick
 
-1. Se c'è un cambio programmato, lo esegue quando è il momento, altrimenti attende o lo annulla (target non
-   più disponibile, segnale perso, finestra di sync scaduta, override manuale).
-2. Se è attivo un override manuale: `HOLD` ("manual override respected").
-3. Se non c'è nulla in onda o la camera in onda è sparita: taglio immediato sull'ancora (Master, poi
-   fallback, poi la camera più larga disponibile).
-4. Se non c'è segnale audio: ritorno al Master oppure `HOLD`, secondo la policy configurata. Nessun altro taglio.
-5. Altrimenti le tre decisioni seguenti.
+1. **Cambio programmato in attesa**: viene rivalidato (vedi *Rivalidazione*). Poi viene eseguito quando
+   è il momento, oppure resta in attesa, oppure viene annullato.
+2. **Override manuale attivo**: `HOLD` ("manual override respected").
+3. **Niente in onda, o camera in onda sparita**: taglio immediato sull'ancora (Master, poi fallback, poi
+   la camera più larga disponibile).
+4. **Nessun segnale audio**: ritorno al Master oppure `HOLD`, secondo la policy. Nessun altro taglio.
+5. **Altrimenti**:
+   - con il Master in onda → **Entry Decision**;
+   - con una secondaria in onda → **Exit Decision**.
 
-## A. Opportunità (conviene tagliare?)
+## Ruoli, classi di copertura e durate
 
-```
-opportunity = duration_pressure + musical_trigger
-```
+Ogni ruolo appartiene a una **classe di copertura**: `master`, `detail` (DETAIL, OVERHEAD) oppure
+`side` (SIDE, BEHIND, WIDE, CUSTOM).
 
-- **Durata minima** della camera (scalata dal preset): vincolo hard.
-- **duration_pressure**: a ogni inquadratura viene campionata una *durata pianificata* da una lognormale
-  con la media del ruolo (Master 36 s, Detail 9 s, Side/Wide 15 s, …) e una dispersione data dal preset.
-  La pressione è 0 alla durata minima, circa 1 alla durata pianificata e sale oltre fino al massimo
-  preferito. Durate campionate significano niente intervalli identici e niente metronomo.
-- **musical_trigger**: eventi probabilistici, ciascuno pesato per la sua confidenza (`reentry` 0.95,
-  `transition` 0.5, `sparse_start` 0.4) e per il guadagno del preset. Gli eventi sotto
-  `musical_cut_confidence` vengono ignorati. Ogni evento viene consumato da al massimo un taglio.
-- Stato `UNCERTAIN`: la pressione viene ridotta del 30%, così le inquadrature respirano.
-- Sotto `cut_threshold` la decisione è `HOLD` ("stable groove; insufficient editorial benefit").
-- Altri vincoli hard: distanza minima tra due tagli e tetto di tagli al minuto.
-- Un insert che supera la sua durata massima viene riportato all'ancora in ogni caso.
+| Classe | Minimo | Finestra preferita | Tetto assoluto (hard cap) | Cooldown |
+|---|---|---|---|---|
+| Master | 12 s | 20–50 s | nessuno | – |
+| Detail | 5 s | 6–10 s | 14 s (configurabile 12–15) | 20 s |
+| Side / Behind / Wide | 7 s | 10–18 s | 22 s (configurabile 20–25) | 15 s |
 
-## B. Destinazione (quale camera?)
+- Il tetto di classe si regola con `detail_hard_cap` e `side_hard_cap`.
+- Ogni camera può avere i propri `preferred_min`, `preferred_max` e `hard_cap`.
+- Il tetto viene sempre riportato dentro l'intervallo della classe. `pref_max` resta almeno 1 s sotto il
+  tetto.
+- Il Master **non ha un massimo rigido**: oltre i 50 s cresce solo la spinta editoriale a uscire.
 
-```
-CameraScore = EditorialFit + MusicalFit + VisualFit + VarietyBonus + Preference
-              − RepetitionPenalty + jitter(seed)
-```
+**Compatibilità con le configurazioni 0.1.x**:
+- `mean_duration` viene letto come finestra preferita 0.8×–1.2× la media;
+- `max_duration` viene letto come hard cap;
+- i file vecchi si caricano senza modifiche.
 
-- **EditorialFit**: l'ancora vale di più quanti più insert consecutivi ci sono stati, e diventa
-  obbligatoria al raggiungimento di `max_consecutive_inserts`. Partendo dal Master, un insert riceve +0.3.
-- **MusicalFit**: tabella ruolo × stato. Per esempio: durante una transizione il DETAIL (mani sul mixer)
-  vale +0.45, durante una ripartenza il WIDE +0.45 e il MASTER +0.35, durante una sezione rarefatta
-  DETAIL e OVERHEAD +0.3.
-- **VisualFit**: 0 in v0.1 (interfaccia pronta per la v0.2).
-- **Variety**: tempo dall'ultimo utilizzo dell'insert, fino a +0.3 a 120 s.
-- **Repetition**: −0.6 per lo schema A-B-A-B; −0.25 per riusare lo stesso insert subito attorno al
-  Master, penalità che svanisce in 60 s.
-- Le camere in **cooldown**, disabilitate, mancanti in OBS, non idonee allo stato corrente o con un
-  cambio appena fallito vengono escluse.
-- **Isteresi**: il migliore candidato deve superare il *valore di restare* (fit musicale della camera
-  corrente, meno una penalità crescente se si sta oltre la durata pianificata) di un margine
-  `hysteresis × (1 − trigger)`. Un evento forte abbassa quindi la soglia per lasciare l'inquadratura.
+## Editorial Coverage Budget (quota morbida)
 
-## C. Timing
+Il budget è la quota di tempo in onda di ogni classe in una **finestra mobile** (`coverage_window`,
+300 s). Viene confrontata con i target `coverage_master` / `coverage_detail` / `coverage_side`
+(70 / 15 / 15).
 
-- Se la confidenza del beat è ≥ `sync_confidence`, il taglio cade sul prossimo beat, oppure sul prossimo
-  downbeat se `prefer_downbeat` è attivo e la confidenza del downbeat è ≥ `downbeat_confidence`, purché
-  entro `max_sync_wait`. Il comando parte con `latency_offset` di anticipo.
-- **Confine di frase** (v0.1.1, euristico): per i tagli **non urgenti** (nessun evento musicale, insert
-  non oltre la durata massima), se è stato rilevato un drop con confidenza sufficiente, il taglio aspetta
-  il prossimo confine di **8 battute** (o di 4, se quello di 8 è troppo lontano), entro `max_phrase_wait`
-  (Minimal 12 s, Natural 9 s, Dynamic 5 s). La griglia parte dall'istante del drop, riallineato al beat
-  corrente, e si annulla se il tempo cambia di oltre il 2%. Si basa sul fatto che la musica dance è
-  costruita a blocchi di 4/8/16 battute; si disattiva con `phrase_sync`.
-- Altrimenti il taglio è immediato: nessuna falsa precisione ritmica.
-- Mentre si attende, il cambio viene annullato se cambia il contesto.
+- I target vengono rinormalizzati sulle classi presenti. Senza camere side, per esempio, diventano
+  Master 82% e Detail 18%.
+- La finestra parte con un *prior* di 45 secondi fittizi già "ai target". Così i primi minuti non
+  producono correzioni brusche.
+- Il budget **orienta, non insegue**. In base al deficit cambiano:
+  - la permanenza pianificata sul Master: fattore `1 − gain·eccesso·8`, limitato tra 0.5 e 1.5;
+  - la scelta della camera di ingresso;
+  - la lunghezza pianificata degli insert, spostata verso un estremo della finestra preferita.
+- Nessuna regola taglia "perché al secondo X la quota è sotto". `coverage_gain` regola quanto il
+  budget pesa (Minimal 0.6, Natural 1.0, Dynamic 1.2).
+
+## Entry Decision (sul Master)
+
+Un ingresso nasce da un'**opportunità**, mai dal solo timer.
+
+| Opportunità | Origine | Condizione |
+|---|---|---|
+| **Musicale** | eventi probabilistici: `reentry`, `transition`, `sparse_start` | confidenza ≥ `musical_cut_confidence`, pesata dal preset; prima di `pref_min` del Master serve un evento più forte (×1.25) |
+| **Visiva** | **novità** dell'attività su una camera rispetto alla sua baseline (vedi sotto) | novità ≥ `visual_novelty_threshold`; ogni camera ha un periodo refrattario di 15 s |
+| **Editoriale** | il Master ha avuto la sua parte e la permanenza pianificata (20–50 s, corretta dal budget) è stata raggiunta | `editorial_cuts` attivo; vale anche con musica stabile |
+
+**La camera di ingresso** viene scelta per punteggio. Il punteggio somma:
+
+- deficit di copertura della classe (×8: è il fattore principale);
+- fit musicale ruolo × stato;
+- novità visiva;
+- peso e preferenza della camera;
+- freschezza (tempo dall'ultimo uso);
+- contesto di sequenza: l'ultimo insert usato è escluso se esistono alternative, così niente A-M-A-M.
+
+Sono escluse le camere in cooldown, disabilitate, mancanti in OBS, non ammesse nello stato corrente o con
+un cambio appena fallito.
+
+**Timing dell'ingresso**:
+
+- **beat affidabile** e ingresso **editoriale** → confine di frase (8 battute, poi 4) entro
+  `max_phrase_wait`, altrimenti downbeat, altrimenti beat;
+- **beat affidabile** e ingresso **musicale o visivo** → il momento conta: downbeat o beat successivo,
+  senza aspettare la frase;
+- **beat inaffidabile** → taglio immediato: niente falsa precisione ritmica.
+
+**Tagli editoriali con musica stabile**: restano agganciati alle opportunità ritmiche (confini di frase)
+e alla sequenza contestuale. Le durate pianificate si muovono su una sequenza a bassa discrepanza, quindi
+non si ripetono e non sono casuali.
+
+## Visual Novelty: novità, non presenza
+
+`VisualNovelty` confronta l'attività visiva di una camera con la sua **baseline**.
+
+- **Baseline asimmetrica**: sale in fretta (assuefazione, τ 4 s) e scende piano (τ 30 s).
+- **Formula**: `novelty = (attività − baseline − margine) / scala`, limitata tra 0 e 1.
+- **Presenza continua** (le mani appoggiate sul mixer): la novità torna a zero in pochi secondi. Quindi
+  **non** è un trigger persistente e **non** può allungare un Detail.
+- **Picco**: genera un evento visivo con TTL di 3 s, poi un periodo refrattario di 15 s per quella camera.
+- **Senza analisi video** (`NullVisualAnalyzer`, la situazione attuale): `activity()` restituisce `None`.
+  La novità resta 0 e il regista lavora solo su musica e budget.
+
+## Exit Decision (su una secondaria)
+
+L'uscita dipende soprattutto dalla **durata**.
+
+1. **Lunghezza pianificata**: viene scelta all'ingresso dentro la finestra preferita (Detail 6–10 s,
+   Side 10–18 s).
+   - Valore di base: la sequenza deterministica della classe.
+   - **Budget**: una classe sopra target accorcia la lunghezza verso `pref_min`, una sotto target la
+     allunga verso `pref_max`.
+2. **Continuità**: se la novità visiva sta ancora calando, o se dura il momento musicale che ha
+   giustificato l'ingresso (per esempio la transizione per un Detail), lo shot può arrivare a
+   `pref_max`. **Mai oltre.**
+3. **Hard cap**: limite di sicurezza assoluto. L'uscita viene programmata in modo da cadere entro il
+   tetto: un cambio in attesa non lo supera mai, e senza un beat utile il taglio è immediato.
+4. **Drop (re-entry)**: riporta presto al Master, appena superata la durata minima.
+5. **Destinazione**: il Master. Fa eccezione il *chaining* (secondaria → secondaria), possibile solo se:
+   - il Master è oltre il target di almeno 5 punti;
+   - un'altra classe è in deficit;
+   - il fit musicale è sufficiente;
+   - non si supera `max_consecutive_inserts`.
+
+   `hysteresis` misura la resistenza al chaining.
+
+Anche l'uscita cade sul downbeat o sul beat, senza attendere la frase. Ha una scadenza (`deadline`)
+che non supera mai il tetto.
+
+## Rivalidazione
+
+Un cambio programmato viene ricontrollato a ogni tick fino all'esecuzione. Viene **annullato** (`CANCEL`)
+se:
+
+- il target non è più disponibile, oppure un cambio verso di lui è appena fallito;
+- il segnale audio è perso;
+- arriva un override manuale;
+- l'attesa per il confine metrico è scaduta;
+- (solo per gli ingressi) il target non è più adatto allo stato musicale ("target no longer suits …");
+- (solo per gli ingressi editoriali) la classe ha già superato il suo target di oltre 10 punti
+  ("coverage target already reached").
+
+Le uscite non vengono annullate per motivi editoriali: il tetto ha la precedenza.
+
+## Determinismo
+
+Il motore non usa numeri casuali.
+
+- **Variazione delle durate**: arriva da una sequenza del rapporto aureo per ogni classe, sfasata dal
+  `seed`, e dalla musica stessa (allineamento ai confini).
+- **Riproducibilità**: stessi ingressi + stesso seed ⇒ stesse decisioni. Il replay offline e i test lo
+  verificano.
+- **Nessuna ripetizione immediata**: due shot consecutivi della stessa classe non hanno mai la stessa
+  durata pianificata.
+- **Ricostruzione dell'engine**: quando si cambiano i parametri in diretta, il controller copia lo stato
+  delle sequenze e della novità, così la regia continua senza salti.
+
+## Shadow Mode
+
+In **Shadow** il motore lavora esattamente come in LIVE:
+
+- stesse decisioni, stessi motivi, stessa copertura nella Dashboard;
+- nessun comando inviato a OBS (lo verifica un test end-to-end).
+
+È il modo previsto per provare la regia su un set reale prima di andare in onda.
 
 ## Preset
 
 | Parametro | Minimal | Natural | Dynamic |
 |---|---|---|---|
-| cut_threshold | 1.0 | 1.0 | 0.8 |
-| scala durata Master / insert | 1.6 / 1.15 | 1.0 / 1.0 | 0.6 / 0.8 |
+| cut_threshold | 1.0 | 1.0 | 0.85 |
+| scala durata Master / insert | 1.4 / 1.0 | 1.0 / 1.0 | 0.75 / 0.9 |
 | distanza minima tra tagli | 8 s | 5 s | 3 s |
 | max tagli/minuto | 3 | 5 | 9 |
-| max insert consecutivi | 1 | 2 | 3 |
+| max insert consecutivi | 1 | 2 | 2 |
 | guadagno trigger musicali | 0.6 | 1.0 | 1.3 |
-| isteresi | 0.35 | 0.25 | 0.18 |
+| isteresi (resistenza al chaining) | 0.35 | 0.25 | 0.18 |
 | attesa massima per un confine di frase | 12 s | 9 s | 5 s |
+| coverage_gain | 0.6 | 1.0 | 1.2 |
 
-Tutti i parametri si possono modificare in *Director › Advanced*. Le modifiche vengono salvate come override
-del preset scelto.
+I target di copertura (70/15/15), la finestra (300 s) e i tetti sono comuni a tutti i preset: i preset
+cambiano il **ritmo**, non le proporzioni.
+
+Tutti i parametri si modificano in *Regia › Avanzate*. Le modifiche vengono salvate come override del
+preset.
 
 ## Override manuale
 
 `on_external_change(scene)` viene chiamato quando OBS segnala un cambio di Program che non abbiamo
-richiesto (finestra di attribuzione di 3 s). Le policy sono `timed` (default 30 s), `until_resume` e `adopt`.
-Una scena non gestita sospende sempre fino a Resume. **Force Master** è un comando esplicito
-dell'operatore e scavalca l'opportunità.
+richiesto (finestra di attribuzione di 3 s).
+
+- **Policy**: `timed` (default 30 s), `until_resume` e `adopt`.
+- **Scena non gestita**: sospende sempre fino a Resume.
+- **Force Master**: è un comando esplicito dell'operatore e scavalca l'opportunità.

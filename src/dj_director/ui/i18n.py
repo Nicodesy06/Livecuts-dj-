@@ -83,6 +83,7 @@ _TIMING_IT = {"beat": "beat", "downbeat": "downbeat", "immediate": "subito",
               "phrase boundary (4/8 bars after the last drop)": "confine di frase (4/8 battute dall'ultimo drop)",
               "phrase": "frase"}
 _STATE_LOWER_IT = {s.label.lower(): v.lower() for s, v in STATE_IT.items()}
+_CLASS_IT = {"master": "master", "detail": "detail", "side": "laterali"}
 
 
 def _ev(m: re.Match, g: str = "k") -> str:
@@ -91,6 +92,32 @@ def _ev(m: re.Match, g: str = "k") -> str:
 
 _REASONS_IT: list[tuple[str, object]] = [
     (r"initial shot", "inquadratura iniziale"),
+    # --- 0.1.3 editorial model: entry / exit / coverage budget
+    (r"master (\d+)s, inside preferred dwell \((\d+)-(\d+)s\)",
+     r"master da \1 s, dentro la permanenza preferita (\2-\3 s)"),
+    (r"master (\d+)s of ~(\d+)s planned \(master (\d+)%/(\d+)%\)",
+     r"master da \1 s su ~\2 s previsti (master \3%/\4%)"),
+    (r"entry: visual novelty on (.+) \(([\d.]+)\)", r"ingresso: novità visiva su \1 (\2)"),
+    (r"entry: editorial, master (\d+)s of ~(\d+)s \(master (\d+)%/(\d+)%\)",
+     r"ingresso editoriale: master \1 s su ~\2 s (master \3%/\4%)"),
+    (r"entry: (?P<k>reentry|transition|sparse start) \((?P<c>[\d.]+)\)",
+     lambda m: f"ingresso: {_ev(m)} ({m.group('c')})"),
+    (r"(master|detail|side) coverage (\d+)%/(\d+)%",
+     lambda m: f"copertura {_CLASS_IT[m.group(1)]} {m.group(2)}%/{m.group(3)}%"),
+    (r"exit: hard cap (\d+)s", r"uscita: limite massimo \1 s"),
+    (r"exit: (?P<k>reentry|transition|sparse start) \((?P<c>[\d.]+)\)",
+     lambda m: f"uscita: {_ev(m)} ({m.group('c')})"),
+    (r"insert (\d+)s of ~(\d+)s planned \(preferred (\d+)-(\d+)s\)",
+     r"inserto da \1 s su ~\2 s previsti (preferiti \3-\4 s)"),
+    (r"continuity: visual novelty", "continuità: novità visiva"),
+    (r"continuity: (.+)", lambda m: f"continuità: {_STATE_LOWER_IT.get(m.group(1), m.group(1))}"),
+    (r"exit: planned length reached \((\d+)s, preferred (\d+)-(\d+)s\)",
+     r"uscita: durata prevista raggiunta (\1 s, preferiti \2-\3 s)"),
+    (r"chain: (.+) \((master|detail|side) coverage (\d+)%/(\d+)%\)",
+     lambda m: f"concatenato: {m.group(1)} (copertura {_CLASS_IT[m.group(2)]} {m.group(3)}%/{m.group(4)}%)"),
+    (r"target no longer suits (.+)",
+     lambda m: f"il target non è più adatto a {_STATE_LOWER_IT.get(m.group(1), m.group(1))}"),
+    (r"coverage target already reached", "obiettivo di copertura già raggiunto"),
     (r"camera '(.+)' unavailable; returning to anchor", r"camera '\1' non disponibile; ritorno all'ancora"),
     (r"no usable camera configured", "nessuna camera utilizzabile configurata"),
     (r"manual override respected \(until Resume\)", "intervento manuale rispettato (fino a Riprendi)"),
@@ -460,4 +487,24 @@ IT: dict[str, str] = {
     "Automatic": "Automatica",
     "< Back": "< Indietro", "Next >": "Avanti >", "Cancel": "Annulla", "Finish": "Fine",
     "File: {0}": "File: {0}", "Scene": "Scena",
+    # ---- 0.1.3 editorial model
+    "Pref. min s": "Pref. min s", "Pref. max s": "Pref. max s", "Hard cap s": "Limite max s",
+    "Role defaults (Natural): MASTER preferred 20–50 s, no rigid maximum · DETAIL / OVERHEAD preferred 6–10 s, "
+    "hard cap 12–15 s · SIDE / BEHIND / WIDE preferred 10–18 s, hard cap 20–25 s. Coverage budget: master 70 %, "
+    "detail 15 %, side 15 % over 5 minutes. Cooldown = minimum time before an insert is reused.":
+        "Valori dei ruoli (Natural): MASTER preferito 20–50 s, senza massimo rigido · DETAIL / OVERHEAD preferito "
+        "6–10 s, limite massimo 12–15 s · SIDE / BEHIND / WIDE preferito 10–18 s, limite massimo 20–25 s. Budget "
+        "di copertura: master 70 %, detail 15 %, laterali 15 % su 5 minuti. Cooldown = tempo minimo prima di "
+        "riusare un inserto.",
+    "Resistance to chaining two inserts": "Resistenza a concatenare due inserti",
+    "Coverage target: master": "Obiettivo di copertura: master",
+    "Coverage target: detail": "Obiettivo di copertura: detail",
+    "Coverage target: side / behind": "Obiettivo di copertura: laterali / dietro",
+    "Coverage window (s)": "Finestra di copertura (s)",
+    "Coverage budget strength": "Intensità del budget di copertura",
+    "Detail hard cap (s)": "Limite massimo Detail (s)", "Side hard cap (s)": "Limite massimo laterali (s)",
+    "Visual novelty threshold": "Soglia di novità visiva",
+    "Editorial inserts also in stable music (on musical boundaries)":
+        "Inserti editoriali anche con musica stabile (sui confini musicali)",
+    "Coverage (sliding window): ": "Copertura (finestra mobile): ",
 }

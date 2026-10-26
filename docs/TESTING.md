@@ -10,17 +10,17 @@ dj-director simulate --synthetic --preset natural --seed 11
 
 ## Suite automatica (eseguita in questa milestone su Linux, Python 3.13)
 
-Risultato dell'ultima esecuzione: **tutti i 122 test superati**.
+Risultato dell'ultima esecuzione (v0.1.3): **142 test superati, 1 saltato** (`test_real_sessions`: nessuna registrazione reale presente).
 
 | Area | File | Copertura |
 |---|---|---|
 | Ring buffer | `unit/test_ringbuffer.py` | wraparound, overrun limitato e contato, scritture più grandi della capacità |
-| Configurazione | `unit/test_config.py` | primo avvio, roundtrip, file corrotto (backup e default), clamp, chiavi sconosciute, sentinelle dei default di ruolo, più master, duplicati, export senza segreti, preset |
+| Configurazione | `unit/test_config.py` | **configurazioni 0.1.2 caricate senza modifiche** (media → finestra preferita, max → hard cap), primo avvio, roundtrip, file corrotto (backup e default), clamp, chiavi sconosciute, sentinelle dei default di ruolo, più master, duplicati, export senza segreti, preset |
 | Segreti | `unit/test_secrets.py` | set/get/rimozione, nessun testo in chiaro su disco, store corrotto |
 | Protocollo OBS | `unit/test_obs_protocol.py` | formula di autenticazione, allow-list (CreateScene, StartRecord, … rifiutati) |
 | Audio e analisi | `unit/test_audio_analysis.py` | silenzio, segnale debole, rumore, onset irregolari, BPM 124/128/140/172, half/double-time con prior, stabilità del BPM, cambio di tempo, fase del beat, breakdown senza beat, dropout, clipping e segnale tramite backend file, dispositivo mancante |
 | Stati musicali | `unit/test_music_state.py` | breakdown e drop rilevati, **aumento di volume ≠ drop**, rarità degli eventi di transizione, groove stabile, confidenze |
-| Director | `unit/test_engine.py` | 31 test (con timing di frase): master iniziale, durata minima, HOLD con motivo, niente timer fisso, master dominante ma non esclusivo, niente A-B-A-B, cooldown, camere disabilitate, camera singola, scena sparita, cambio programmato annullato, sync al beat, beat incerto (niente falsa precisione), re-entry, evento a bassa confidenza ignorato, preset, tetto tagli/minuto, max insert consecutivi, determinismo, quattro casi di override manuale, perdita del segnale (due policy), cambio fallito, motivi coerenti |
+| Director | `unit/test_engine.py` | 44 test (v0.1.3). Riguardano: <ul><li>master iniziale, durata minima, HOLD con motivo, niente timer fisso, niente A-B-A-B, cooldown, camere disabilitate, camera singola, scena sparita;</li><li>sync al beat e beat incerto (niente falsa precisione), timing di frase, preset, tetti dei tagli, determinismo, override manuale, perdita del segnale, cambio fallito, motivi coerenti;</li><li>**nuovi in v0.1.3**: ingresso e uscita separati; durate preferite Detail/Side; hard cap mai superato, nemmeno con un cambio in attesa; Master senza massimo rigido; presenza continua delle mani che non provoca tagli e non allunga un Detail; novità visiva che fa entrare; refrattario; continuità limitata a `pref_max`; budget di copertura in finestra mobile; tagli editoriali con musica stabile; nessuna durata ripetuta di fila; rivalidazione (target non più adatto, copertura raggiunta); chaining solo con Master oltre budget; tetto configurabile riportato in 12–15 / 20–25.</li></ul> |
 | OBS (integrazione) | `integration/test_obs_controller.py` | connessione, password errata (nessun tentativo ripetuto), OBS irraggiungibile senza blocchi, timeout, cambio riuscito via UUID, cambio fallito, scena sconosciuta, cambio esterno, rinomina/rimozione, Studio Mode (Preview intatta), riconnessione dopo riavvio, spegnimento di OBS |
 | App end-to-end (real-time) | `integration/test_app_controller.py` | LIVE comanda OBS, **Shadow non invia mai comandi**, Stop ferma subito, override rispettato e poi ripresa, scena non gestita, disconnessione → ARMED → LIVE, rinomina persistita, Force Master |
 | Sorgenti audio | `unit/test_audio_sources.py` | riconoscimento UCA222 / interfacce / microfoni ambientali, suggerimento, deduplica host API, attività musica vs ronzio, classifica del rilevamento automatico, zeri digitali (privacy microfono), riempimento del silenzio nel loopback |
@@ -28,6 +28,7 @@ Risultato dell'ultima esecuzione: **tutti i 122 test superati**.
 | Interfaccia italiana | `unit/test_i18n.py` | ogni stringa UI tradotta, segnaposto preservati, ogni motivo del motore tradotto per intero |
 | Desktop | `integration/test_gui.py` | primo avvio senza config, config corrotta, refresh di tutte le pagine, wizard, salvataggio override, esecuzione della simulazione |
 | Qualità editoriale | `simulation/test_quality_harness.py` | nessuna violazione, più calmo delle baseline, master come ancora, allineamento al beat, determinismo, export |
+| Sessioni lunghe e reali | `simulation/test_real_sessions.py` | set sintetico mixato da 12.8 min per ogni preset (copertura Master nella banda, deviazione ≤ 13 punti, tetti rispettati, tagli sul beat). Replay delle **registrazioni reali** in `tests/sessions/` o `DJD_SESSIONS_DIR`: test saltato se non ce ne sono |
 
 I test OBS usano `obs/fake_server.py`, un server obs-websocket 5 finto ma fedele al protocollo
 (Hello/Identify con autenticazione, close code 4009, eventi), **non OBS reale**.
@@ -50,7 +51,42 @@ I test OBS usano `obs/fake_server.py`, un server obs-websocket 5 finto ma fedele
 Il materiale sintetico è più regolare della musica reale: questi numeri sono un limite superiore,
 non una misura di accuratezza su DJ set veri.
 
+### Director Engine v0.1.3: set mixato da 12.8 minuti (`simulate --mix`, seed 11)
+
+Sei brani tra 122 e 128 BPM, mixati con sovrapposizioni di 16 battute. Camere: Master, Detail, Side,
+Behind (4 camere, preset Natural, se non indicato altrimenti).
+
+| Metrica | Natural (4 cam) | Natural (3 cam) | Minimal | Dynamic | Timer | Casuale |
+|---|---|---|---|---|---|---|
+| Copertura Master / Detail / Side | 71 / 12 / 17% | 71 / 12 / 17% | 79 / 8 / 13% | 70 / 13 / 17% | – | – |
+| Deviazione massima dai target | 6.3 punti | 4.1 | 10.3 | 4.3 | 46 | – |
+| Tagli/minuto | 3.27 | – | – | – | – | – |
+| Durata mediana Master / Detail / Side | 26.0 / 9.4 / 11.6 s | – | – | – | – | – |
+| Durata massima Detail / Side | 10.4 / 12.9 s | – | – | – | – | – |
+| Violazioni dell'hard cap | 0 | 0 | 0 | 0 | – | 1 |
+| Schemi A-B-A-B | 0 | 0 | 0 | 0 | – | 5 |
+| Intervalli ripetuti | 1 | – | – | – | 63 | – |
+| Allineamento al beat (mediana) | 6.5 ms | – | – | – | – | – |
+
+**Con due camere di classe Detail** (Detail + Overhead, 5 camere), la copertura sale a:
+- Natural: 70 / 13 / 16% (deviazione 4.6 punti);
+- Dynamic: 70 / 15 / 15% (deviazione 3.7 punti).
+
+**Lettura dei risultati**:
+- **Detail con una sola camera**: si ferma intorno al 12%. Con un solo Detail il limite è strutturale.
+  Tra un Master e l'altro gli insert alternano Detail e laterali (M-D-M-S), per un ciclo di circa
+  26 + 9 + 26 + 12 s: così il Detail resta intorno al 12%. Per arrivare al 15% servirebbero Detail
+  oltre la finestra preferita, oppure tagli più fitti o ripetuti sulla stessa camera. Il motore non lo
+  fa: il budget è una quota morbida, non un obiettivo da inseguire.
+- **Minimal**: resta volutamente più lungo sul Master, per via del guadagno di copertura ridotto e della
+  durata del Master ×1.4.
+- **Timer a intervalli fissi**: produce 63 intervalli ripetuti.
+- **Regia casuale**: produce ping-pong e supera il tetto.
+
 ### Harness editoriale (set sintetico 3:53, 3 camere, seed 11, v0.1.1)
+
+*Misure della v0.1.1, mantenute come riferimento storico. Il test `test_quality_harness.py` gira anche
+sul motore v0.1.3.*
 
 | Metrica | Minimal | Natural | Dynamic | Timer 12 s | Casuale |
 |---|---|---|---|---|---|
@@ -83,7 +119,9 @@ su registrazioni reali.
 4. [ ] **Behringer UCA222**: rilevamento automatico, segnale su ingresso "Microfono (USB Audio CODEC)", eventuale blocco privacy microfono; altre interfacce reali (es. canali 1+2 e 3+4), mixer USB, hotplug (scollega/ricollega),
        dispositivo in uso esclusivo da un'altra app.
 5. [ ] WASAPI loopback su "Altoparlanti (USB Audio CODEC)" con PyAudioWPatch, comprese pause di silenzio.
-6. [ ] DJ set reale di almeno 60 minuti in Shadow, poi LIVE con registrazione OBS: revisione umana della
+6. [ ] **Registrazioni reali per l'harness**: copiare 2–3 set veri (WAV/FLAC) in `tests/sessions/` e
+       lanciare `pytest tests/simulation/test_real_sessions.py`. Poi rivedere copertura, durate e motivi.
+7. [ ] DJ set reale di almeno 60 minuti in Shadow, poi LIVE con registrazione OBS: revisione umana della
        regia, CPU e RAM durante la registrazione, nessun drop di frame imputabile al programma.
-7. [ ] Calibrazione del `latency_offset_ms` con lo strumento di calibrazione e una registrazione di prova (taglio rispetto al kick).
-8. [ ] Password memorizzata con DPAPI: verificare che `secrets.json` non sia leggibile da un altro account.
+8. [ ] Calibrazione del `latency_offset_ms` con lo strumento di calibrazione e una registrazione di prova (taglio rispetto al kick).
+9. [ ] Password memorizzata con DPAPI: verificare che `secrets.json` non sia leggibile da un altro account.
