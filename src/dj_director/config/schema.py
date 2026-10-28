@@ -22,7 +22,49 @@ class CameraRole(str, Enum):
     WIDE = "WIDE"
     OVERHEAD = "OVERHEAD"
     BEHIND = "BEHIND"
+    CROWD = "CROWD"
     CUSTOM = "CUSTOM"
+
+
+# --- framing metadata (0.4): optional, filled by the user; UNKNOWN is never guessed ----------------
+class ShotSize(str, Enum):
+    UNKNOWN = "UNKNOWN"
+    WIDE = "WIDE"
+    MEDIUM = "MEDIUM"
+    CLOSE = "CLOSE"
+    EXTREME_CLOSE = "EXTREME_CLOSE"
+
+
+class Subject(str, Enum):
+    UNKNOWN = "UNKNOWN"
+    DJ = "DJ"
+    HANDS = "HANDS"
+    EQUIPMENT = "EQUIPMENT"
+    CROWD = "CROWD"
+    ENVIRONMENT = "ENVIRONMENT"
+
+
+class ViewAngle(str, Enum):
+    """Approximate camera position around the DJ booth (FRONT = facing the DJ, crowd side)."""
+    UNKNOWN = "UNKNOWN"
+    FRONT = "FRONT"
+    FRONT_LEFT = "FRONT_LEFT"
+    LEFT = "LEFT"
+    BACK_LEFT = "BACK_LEFT"
+    BACK = "BACK"
+    BACK_RIGHT = "BACK_RIGHT"
+    RIGHT = "RIGHT"
+    FRONT_RIGHT = "FRONT_RIGHT"
+    TOP = "TOP"
+
+
+class ScreenDirection(str, Enum):
+    """Where the subject looks / moves on screen, when it matters."""
+    UNKNOWN = "UNKNOWN"
+    LEFT = "LEFT"
+    RIGHT = "RIGHT"
+    TOWARD = "TOWARD"
+    AWAY = "AWAY"
 
 
 # Editorial coverage classes used by the coverage budget (soft quota).
@@ -34,6 +76,7 @@ ROLE_COVERAGE: dict[CameraRole, str] = {
     CameraRole.SIDE: COVER_SIDE,
     CameraRole.BEHIND: COVER_SIDE,
     CameraRole.WIDE: COVER_SIDE,
+    CameraRole.CROWD: COVER_SIDE,
     CameraRole.CUSTOM: COVER_SIDE,
 }
 
@@ -58,14 +101,17 @@ class DurationSpec:
 
 
 # (min, preferred min, preferred max, hard cap [0 = class default / none], cooldown)
+# Natural preset (0.4 "Director 2.0"): MASTER 30-50 s, no editorial cap; DETAIL 6-10 s (max 14);
+# OVERHEAD 7-11 s (max 15); SIDE 10-17 s (max 23); BEHIND / CROWD / WIDE contextual, configurable.
 ROLE_DURATIONS: dict[CameraRole, tuple[float, float, float, float, float]] = {
-    CameraRole.MASTER: (12.0, 20.0, 50.0, 0.0, 0.0),
+    CameraRole.MASTER: (12.0, 30.0, 50.0, 0.0, 0.0),
     CameraRole.DETAIL: (5.0, 6.0, 10.0, 0.0, 20.0),
-    CameraRole.OVERHEAD: (5.0, 6.0, 10.0, 0.0, 20.0),
-    CameraRole.SIDE: (7.0, 10.0, 18.0, 0.0, 15.0),
-    CameraRole.BEHIND: (7.0, 10.0, 18.0, 0.0, 15.0),
-    CameraRole.WIDE: (7.0, 10.0, 18.0, 0.0, 15.0),
-    CameraRole.CUSTOM: (7.0, 10.0, 18.0, 0.0, 15.0),
+    CameraRole.OVERHEAD: (5.0, 7.0, 11.0, 15.0, 20.0),
+    CameraRole.SIDE: (7.0, 10.0, 17.0, 0.0, 15.0),
+    CameraRole.BEHIND: (7.0, 10.0, 17.0, 0.0, 15.0),
+    CameraRole.WIDE: (7.0, 10.0, 17.0, 0.0, 15.0),
+    CameraRole.CROWD: (5.0, 6.0, 12.0, 0.0, 15.0),
+    CameraRole.CUSTOM: (7.0, 10.0, 17.0, 0.0, 15.0),
 }
 
 # Numeric ranges: field name -> (min, max). Used for clamping.
@@ -116,6 +162,8 @@ _RANGES: dict[str, tuple[float, float]] = {
     "detail_hard_cap": HARD_CAP_RANGE[COVER_DETAIL],
     "side_hard_cap": HARD_CAP_RANGE[COVER_SIDE],
     "visual_novelty_threshold": (0.05, 1.0),
+    "crop_zoom": (1.0, 8.0),
+    "continuity_weight": (0.0, 3.0),
     "mix_shot_cap": (12.0, 25.0),
     "judge_interval": (3.0, 60.0),
     "judge_timeout": (2.0, 60.0),
@@ -174,6 +222,14 @@ class CameraConfig:
     preferred_min: float = 0.0        # 0 = role default
     preferred_max: float = 0.0
     hard_cap: float = 0.0             # 0 = class default (secondaries) / none (master)
+    # --- framing metadata (0.4): all optional; UNKNOWN / "" = not known, never guessed
+    shot_size: ShotSize = ShotSize.UNKNOWN
+    subject: Subject = Subject.UNKNOWN
+    view_angle: ViewAngle = ViewAngle.UNKNOWN
+    visual_group: str = ""            # shots that look nearly the same (cutting between them is a jump cut)
+    source_group: str = ""            # physical camera (several OBS crops of one camera share it)
+    screen_direction: ScreenDirection = ScreenDirection.UNKNOWN
+    crop_zoom: float = 1.0            # digital crop factor of this scene vs its source (1 = no crop)
 
     @property
     def coverage_class(self) -> str:
@@ -227,11 +283,14 @@ class DirectorParams:
     editorial_cuts: bool = True       # keep musically-timed editorial inserts in stable music
     # --- hard caps of secondary shots (configurable inside 12-15 s / 20-25 s)
     detail_hard_cap: float = 14.0
-    side_hard_cap: float = 22.0
+    side_hard_cap: float = 23.0
     # --- visual opportunities: novelty of activity vs. its own baseline, never mere presence
     visual_novelty_threshold: float = 0.35
     # --- drop grammar (0.2): keep the reveal shot back during the build-up, open on it at the drop
     drop_reveal: bool = True
+    # --- professional shot grammar (0.4): continuity between shots + contextual editing grammar
+    continuity_weight: float = 1.0    # 0 = off (0.3 behaviour)
+    contextual_grammar: bool = True   # breakdown / build-up / drop / mixing preferences
     # --- DJ gestures heard in the audio (0.3): EQ / isolator kills and filters -> mixer camera
     mix_gestures: bool = True
     mix_shot_cap: float = 14.0        # cap of a mixer shot held during a gesture (12-25 s; 14 = Detail max)

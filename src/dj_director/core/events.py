@@ -186,6 +186,7 @@ class DirectorDecisionEvent:
     priority: int = 0
     correlation_id: int = 0
     scores: tuple[tuple[str, float], ...] = ()
+    plan: tuple[tuple[str, str], ...] = ()   # (("why", ..), ("what", ..), ("when", ..), ("how_long", ..))
 
     def short(self) -> str:
         if self.action in (DirectorAction.SWITCH, DirectorAction.SCHEDULE):

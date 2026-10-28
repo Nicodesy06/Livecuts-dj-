@@ -372,6 +372,9 @@ def run_g(engine, seconds, gesture_fn, events_fn=None, start=0.0, dt=0.05):
     return out
 
 
+HANDS = lambda cam: 0.6 if cam.name == "D" else 0.0          # the mixer shot shows the hands moving
+
+
 def _cut_on_master(e, t_cut=14.0, detail="low: -30 dB"):
     e.tick(0, snap(0))
     run(e, t_cut, start=0.05)
@@ -380,16 +383,32 @@ def _cut_on_master(e, t_cut=14.0, detail="low: -30 dB"):
 
 
 def test_dj_cutting_the_bass_cuts_to_the_mixer_on_the_beat():
-    e = make(4)
+    e = make(4, visual=HANDS)                  # picture confirms the hands are working
     ev = _cut_on_master(e)
     ds = run_g(e, 3, lambda t: "eq_cut:low", lambda t: (ev,) if t == 14.0 else (), start=14.0)
     sw = switches(ds)
     assert sw and sw[0].candidate_camera == "D" and sw[0].reason.startswith("entry: DJ cuts the lows")
     assert sw[0].timing in (TimingMode.BEAT, TimingMode.DOWNBEAT)
+    assert dict(sw[0].plan)["why"].startswith("entry: DJ cuts the lows")
+
+
+def test_audio_gesture_alone_does_not_cut_a_fresh_master():
+    e = make(4)                                # no picture: the spectral event alone is not proof
+    ev = _cut_on_master(e)
+    ds = run_g(e, 3, lambda t: "eq_cut:low", lambda t: (ev,) if t == 14.0 else (), start=14.0)
+    assert switches(ds) == []
+
+
+def test_audio_gesture_raises_the_mixer_shot_once_the_master_has_had_its_time():
+    e = make(4)
+    ev = _cut_on_master(e, t_cut=29.0)         # heard just before the master's dwell is complete
+    ds = run_g(e, 5, lambda t: "eq_cut:low", lambda t: (ev,) if t == 29.0 else (), start=29.0)
+    sw = switches(ds)
+    assert sw and sw[0].candidate_camera == "D" and sw[0].reason.startswith("entry: DJ cuts the lows")
 
 
 def test_mixer_shot_is_held_while_the_gesture_lasts_never_beyond_the_ordinary_detail_max():
-    e = make(4)
+    e = make(4, visual=HANDS)
     ev = _cut_on_master(e)
     ds = run_g(e, 40, lambda t: "eq_cut:low", lambda t: (ev,) if t == 14.0 else (), start=14.0)
     sw = switches(ds)
@@ -399,7 +418,7 @@ def test_mixer_shot_is_held_while_the_gesture_lasts_never_beyond_the_ordinary_de
 
 
 def test_mixer_shot_cap_can_be_raised_to_15_20s():
-    e = make(4, params={"mix_shot_cap": 20.0})
+    e = make(4, visual=HANDS, params={"mix_shot_cap": 20.0})
     ev = _cut_on_master(e)
     ds = run_g(e, 40, lambda t: "eq_cut:low", lambda t: (ev,) if t == 14.0 else (), start=14.0)
     sw = switches(ds)
@@ -408,7 +427,7 @@ def test_mixer_shot_cap_can_be_raised_to_15_20s():
 
 
 def test_bass_coming_back_opens_the_reveal_shot():
-    e = make(4)
+    e = make(4, visual=HANDS)
     ev = _cut_on_master(e)
     back = MusicEvent(24.0, "eq_return", 0.95, "bass back in 0.2 s")
     ds = run_g(e, 12, lambda t: "eq_cut:low" if t < 24.0 else "",
@@ -419,7 +438,7 @@ def test_bass_coming_back_opens_the_reveal_shot():
 
 
 def test_mixer_shot_ends_soon_after_the_dj_lets_go():
-    e = make(4)
+    e = make(4, visual=HANDS)
     ev = _cut_on_master(e)
     ds = run_g(e, 20, lambda t: "eq_cut:low" if t < 20.0 else "", lambda t: (ev,) if t == 14.0 else (),
                start=14.0)

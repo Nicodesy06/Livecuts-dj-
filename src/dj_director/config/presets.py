@@ -1,9 +1,10 @@
 """Director presets.
 
 Presets are parameter sets for the *same* engine, not separate behaviours.
-Natural is the default: master shots generally 20-50 s, Detail inserts 6-10 s
-(hard cap 14 s), Side/Behind inserts 10-18 s (hard cap 22 s), and a coverage
-budget of 70 % master / 15 % detail / 15 % side over a 5-minute sliding window.
+Natural is the default: master shots generally 30-50 s, Detail inserts 6-10 s
+(ordinary maximum 14 s), Overhead 7-11 s (15 s), Side/Behind 10-17 s (23 s), and a
+coverage budget of 70 % master / 30 % inserts (15 detail + 15 side) over a
+5-minute sliding window.
 All presets share the same coverage targets; they differ in pace.
 """
 

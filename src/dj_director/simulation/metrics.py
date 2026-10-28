@@ -56,6 +56,10 @@ class EditorialMetrics:
     median_by_class: dict[str, float] = field(default_factory=dict)
     max_by_class: dict[str, float] = field(default_factory=dict)
     repeated_intervals: int = 0      # consecutive cut intervals within 0.5 s of each other
+    # shot continuity (0.4), counted only where framing metadata says so (director.continuity)
+    jump_cuts: int = 0
+    axis_crossings: int = 0
+    repeated_transitions: int = 0
 
     def as_dict(self) -> dict:
         return asdict(self)

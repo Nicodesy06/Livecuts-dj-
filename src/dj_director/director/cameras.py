@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterable, Optional
 
-from dj_director.config.schema import COVER_MASTER, ROLE_COVERAGE, CameraConfig, CameraRole
+from dj_director.config.schema import (COVER_MASTER, ROLE_COVERAGE, CameraConfig, CameraRole, ScreenDirection,
+                                       ShotSize, Subject, ViewAngle)
 
 
 @dataclass
@@ -28,6 +29,13 @@ class Camera:
     last_used_end: float = -1e9    # clock time the camera last went off air
     uses: int = 0
     airtime: float = 0.0
+    # framing metadata (UNKNOWN / "" = not known)
+    shot_size: ShotSize = ShotSize.UNKNOWN
+    subject: Subject = Subject.UNKNOWN
+    view_angle: ViewAngle = ViewAngle.UNKNOWN
+    visual_group: str = ""
+    source_group: str = ""
+    screen_direction: ScreenDirection = ScreenDirection.UNKNOWN
 
     @classmethod
     def from_config(cls, c: CameraConfig) -> "Camera":
@@ -35,7 +43,10 @@ class Camera:
         return cls(name=c.scene_name, role=c.role, is_master=c.is_master, fallback=c.fallback,
                    weight=c.weight, priority=c.priority, min_duration=d.min, pref_min=d.pref_min,
                    pref_max=d.pref_max, hard_cap=d.hard_cap, cooldown=d.cooldown,
-                   allowed_states=frozenset(c.allowed_states), enabled=c.enabled, uuid=c.scene_uuid)
+                   allowed_states=frozenset(c.allowed_states), enabled=c.enabled, uuid=c.scene_uuid,
+                   shot_size=c.shot_size, subject=c.subject, view_angle=c.view_angle,
+                   visual_group=c.visual_group.strip(), source_group=c.source_group.strip(),
+                   screen_direction=c.screen_direction)
 
     @property
     def coverage_class(self) -> str:
@@ -85,7 +96,7 @@ class CameraRegistry:
         for c in self._cams.values():
             if c.fallback and c.usable:
                 return c
-        order = [CameraRole.WIDE, CameraRole.SIDE, CameraRole.BEHIND, CameraRole.CUSTOM,
+        order = [CameraRole.WIDE, CameraRole.SIDE, CameraRole.BEHIND, CameraRole.CROWD, CameraRole.CUSTOM,
                  CameraRole.OVERHEAD, CameraRole.DETAIL]
         for role in order:
             for c in self._cams.values():

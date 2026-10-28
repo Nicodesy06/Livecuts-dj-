@@ -66,15 +66,19 @@ def test_a_track_emptying_by_itself_is_not_a_dj_gesture():
     assert evs == []
 
 
-def test_replay_mixer_shot_then_reveal_when_the_bass_comes_back():
+def _replay_kill(cut_beats, back_beats):
     tr = generate(sections=[Section("g", 96, ("kick", "hat", "clap", "bass", "pad"))], bpm=124)
     beat = 60 / 124
-    # the DJ kills the bass at bar 9 (master past its minimum, mixer camera unused) for 6 bars:
-    # the bass returns while the mixer shot is still inside its 14 s maximum
-    cut_at, back_at = 32 * beat, 56 * beat
+    cut_at, back_at = cut_beats * beat, back_beats * beat
     audio = apply_mixer(tr.audio, tr.sr, [MixMove("low_kill", cut_at, back_at)])
     r = run_replay(audio, tr.sr, default_cameras(4), DirectorConfig(preset="natural"), seed=3, baselines=False)
-    mixer = [s for s in r.shots if s.reason.startswith(("entry: DJ cuts the lows", "exit: DJ cuts the lows"))]
+    return r, cut_at, back_at
+
+
+def test_replay_kill_once_the_master_has_had_its_time_mixer_then_reveal():
+    # audio only: the DJ kills the bass for 6 bars when the master has had its ~30 s
+    r, cut_at, back_at = _replay_kill(60, 84)
+    mixer = [s for s in r.shots if s.reason.startswith("entry: DJ cuts the lows")]
     assert mixer, [(round(s.start), s.camera, s.reason[:40]) for s in r.shots]
     m = mixer[0]
     assert m.camera == "Cam Mixer Detail" and cut_at < m.start < cut_at + 2.5
@@ -82,3 +86,11 @@ def test_replay_mixer_shot_then_reveal_when_the_bass_comes_back():
     assert nxt.camera == "Cam Behind" and nxt.reason.startswith("exit: drop reveal on Cam Behind")
     assert back_at < nxt.start < back_at + 1.5
     assert r.metrics.hard_cap_violations == 0 and r.metrics.min_duration_violations == 0
+
+
+def test_replay_kill_on_a_fresh_master_holds_then_reveals_on_the_bass():
+    # audio alone does not prove a DJ action: a fresh master is kept, the bass return still opens up
+    r, cut_at, back_at = _replay_kill(32, 56)
+    assert not [s for s in r.shots if s.reason.startswith(("entry: DJ", "exit: DJ"))]
+    first_cut = r.shots[1]
+    assert first_cut.reason.startswith("entry: drop reveal") and back_at < first_cut.start < back_at + 1.5

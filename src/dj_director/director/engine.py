@@ -72,6 +72,8 @@ from dj_director.config.schema import (COVER_DETAIL, COVER_MASTER, COVER_SIDE, H
 from dj_director.core.events import (DirectorAction, DirectorDecisionEvent, MusicEvent,
                                      MusicSnapshot, MusicState, TimingMode, next_correlation_id)
 from dj_director.director.cameras import Camera, CameraRegistry
+from dj_director.director.continuity import assess
+from dj_director.director.shot_planner import ShotPlanner
 
 S = MusicState
 R = CameraRole
@@ -90,6 +92,8 @@ MUSICAL_FIT: dict[CameraRole, dict[MusicState, float]] = {
                  S.TRANSITION: .10, S.REENTRY: .45, S.UNCERTAIN: .05, S.NO_SIGNAL: .00},
     R.OVERHEAD: {S.STABLE_GROOVE: .10, S.INCREASING: .25, S.DECREASING: .10, S.SPARSE: .30,
                  S.TRANSITION: .40, S.REENTRY: .00, S.UNCERTAIN: .00, S.NO_SIGNAL: -.40},
+    R.CROWD:    {S.STABLE_GROOVE: .15, S.INCREASING: .25, S.DECREASING: .10, S.SPARSE: .15,
+                 S.TRANSITION: .05, S.REENTRY: .50, S.UNCERTAIN: .00, S.NO_SIGNAL: -.30},
     R.CUSTOM:   {s: .15 for s in MusicState} | {S.NO_SIGNAL: -.30},
 }
 
@@ -135,6 +139,7 @@ class PendingSwitch:
     kind: str = "entry"               # "entry" | "exit"
     trigger: str = ""                 # "editorial" | "visual" | "musical" | "planned" | ...
     deadline: float = math.inf        # exits: must fire before the hard cap
+    plan: tuple = ()                  # ShotPlan.as_tuple(): why / what / when / how long
 
 
 @dataclass(frozen=True)
@@ -210,7 +215,8 @@ class DirectorEngine:
                  visual_fit: Callable[[Camera], float] | None = None,
                  visual_activity: Callable[[Camera], Optional[float]] | None = None,
                  visual_issue: Callable[[Camera], str] | None = None,
-                 reveal_hint: Callable[[], Optional[str]] | None = None) -> None:
+                 reveal_hint: Callable[[], Optional[str]] | None = None,
+                 visual_quality: Callable[[Camera], str] | None = None) -> None:
         self.reg = registry
         self.p = params
         self.s = settings or EngineSettings()
@@ -220,6 +226,10 @@ class DirectorEngine:
         self.visual_activity = visual_activity or (lambda cam: None)
         self.visual_issue = visual_issue or (lambda cam: "")
         self.reveal_hint = reveal_hint or (lambda: None)
+        self.visual_quality = visual_quality or (lambda cam: "UNKNOWN")
+        self.planner = ShotPlanner(self)
+        self._last_snap: Optional[MusicSnapshot] = None
+        self._ranked: list = []
         self.current: Optional[str] = None
         self.shot_start = 0.0
         self.shot_target = 0.0
@@ -364,11 +374,33 @@ class DirectorEngine:
             c = self.reg.get(n) if n else None
             if c is not None and c.usable and not self.reg.is_anchor(c):
                 return c
-        order = (R.WIDE, R.BEHIND, R.SIDE, R.CUSTOM)
+        order = (R.CROWD, R.WIDE, R.BEHIND, R.SIDE, R.CUSTOM)
         cands = [c for c in self.reg.usable() if not self.reg.is_anchor(c) and c.role in order]
         if not cands:
             return None
-        return min(cands, key=lambda c: (order.index(c.role), -c.weight, c.name))
+
+        def opens_up(c: Camera) -> int:          # framing metadata, when known: wide / crowd shots first
+            from dj_director.config.schema import ShotSize, Subject
+            return 0 if (c.shot_size == ShotSize.WIDE or c.subject in (Subject.CROWD, Subject.ENVIRONMENT)) else 1
+        return min(cands, key=lambda c: (opens_up(c), order.index(c.role), -c.weight, c.name))
+
+    def quality_of(self, cam: Camera) -> str:
+        """HEALTHY / UNKNOWN / FAILED (source health from the visual analysis; UNKNOWN = no information)."""
+        try:
+            q = self.visual_quality(cam) or "UNKNOWN"
+        except Exception:
+            q = "UNKNOWN"
+        return "FAILED" if self.veto(cam) else q
+
+    def quality_known(self) -> bool:
+        """Visual analysis is running (some camera is HEALTHY): UNKNOWN then means "not verified"."""
+        return any(self.quality_of(c) == "HEALTHY" for c in self.reg.usable())
+
+    def build_up_reliable(self) -> bool:
+        """Build-up predictions are used only with a confident beat and a confident state."""
+        sn = self._last_snap
+        return bool(sn is not None and sn.beat.confidence >= self.p.sync_confidence
+                    and sn.state_confidence >= 0.5)
 
     def mixer_camera(self) -> Optional[Camera]:
         """The shot on the mixer used for DJ gestures: chosen scene, else the best DETAIL / OVERHEAD."""
@@ -385,7 +417,8 @@ class DirectorEngine:
     def _reveal_ok(self, now: float, rc: Optional[Camera], cur: Camera) -> bool:
         return (rc is not None and rc.name != cur.name and not self.veto(rc)
                 and now >= self._failed_until.get(rc.name, 0) and now - rc.last_used_end >= 3.0
-                and not self._would_ping_pong(rc.name))
+                and not self._would_ping_pong(rc.name)
+                and not assess(cur, rc, [s.camera for s in self.history[-8:]], editorial_exception=True).jump_cut)
 
     def _would_ping_pong(self, target: str) -> bool:
         """Cutting to ``target`` would complete an A-B-A-B pattern (e.g. M-S-M-S)."""
@@ -437,6 +470,8 @@ class DirectorEngine:
                 self._set_phrase_anchor(e.t, snap)
         self._triggers = [e for e in self._triggers if now - e.t <= EVENT_TTL[e.kind]]
         self._update_visual(now)
+        self._last_snap = snap
+        self._ranked = []
         state = snap.state if snap else MusicState.NO_SIGNAL
         d = self._tick(now, snap, state)
         self.last_decision = d
@@ -536,7 +571,9 @@ class DirectorEngine:
                                   "cut wanted but cuts-per-minute limit reached", 0.8, state,
                                   opportunity=opportunity)
 
-        ranked = self._rank_inserts(now, cur, state, cov, targets, vis_ev)
+        gesture = bool(trig_ev is not None and trig_ev.kind in GESTURES) or bool(snap is not None
+                                                                              and snap.mix_gesture)
+        ranked = self._rank_inserts(now, cur, state, cov, targets, vis_ev, gesture=gesture)
         rc = self.reveal_camera()
         if (trig_ev is not None and trig_ev.kind in DROP_EVENTS and trig >= vis
                 and self._reveal_ok(now, rc, cur) and rc.allows(state.value)):
@@ -548,9 +585,9 @@ class DirectorEngine:
             return self._commit(now, rc.name, reason, max(0.6, trig_ev.confidence), opportunity, state,
                                 timing, target_t, (), kind="entry", trigger="musical", music=True)
         mc = self.mixer_camera()
-        if (trig_ev is not None and trig_ev.kind in GESTURES and trig >= vis
-                and self._reveal_ok(now, mc, cur) and mc.allows(state.value)):
-            # the DJ is working the mixer: show it, on the next beat
+        if (trig_ev is not None and trig_ev.kind in GESTURES and trig >= vis and ranked
+                and mc is not None and ranked[0][0].name == mc.name and not self._would_ping_pong(mc.name)):
+            # the DJ is working the mixer and the planner picked the mixer shot: show it on the next beat
             timing, target_t = self._timing(now, snap, urgent=True)
             mcls = self.class_of(mc)
             reason = (f"entry: DJ {_gesture_text(trig_ev)} ({trig_ev.confidence:.2f}); "
@@ -587,55 +624,15 @@ class DirectorEngine:
                             target_t, scores, kind="entry", trigger=trigger, music=trigger == "musical")
 
     def _master_dwell(self, sp: ShotSpec, cov: dict, targets: dict) -> float:
-        """Planned master dwell, pulled shorter when the master is over budget and longer when under."""
-        over = cov.get(COVER_MASTER, 0.0) - targets.get(COVER_MASTER, 0.7)
-        factor = min(1.5, max(0.5, 1.0 - self.p.coverage_gain * over * 8.0))
-        return min(max(self.shot_target * factor, sp.pref_min), sp.pref_max)
+        return self.planner.how_long_master(sp, cov, targets)
 
     def _rank_inserts(self, now: float, cur: Camera, state: MusicState, cov: dict, targets: dict,
-                      vis_ev: Optional[VisualEvent], ignore_cooldown: bool = False
+                      vis_ev: Optional[VisualEvent], ignore_cooldown: bool = False, gesture: bool = False
                       ) -> list[tuple[Camera, float, dict]]:
-        last_insert = next((s for s in reversed(self.history)
-                            if self.reg.get(s.camera) is not None
-                            and not self.reg.is_anchor(self.reg.get(s.camera))
-                            and s.camera != cur.name), None)
-        last_cls = self.class_of(self.reg.get(last_insert.camera)) if last_insert else None
-        out = []
-        for c in self.reg.usable():
-            if c.name == cur.name or self.reg.is_anchor(c) or now < self._failed_until.get(c.name, 0):
-                continue
-            if not c.allows(state.value):
-                continue
-            cls = self.class_of(c)
-            if targets.get(cls, 0.0) <= 0:
-                continue
-            if now - c.last_used_end < c.cooldown and not ignore_cooldown:
-                continue
-            if self.veto(c):
-                continue
-            parts: dict[str, float] = {
-                "coverage": self.p.coverage_gain * (targets[cls] - cov.get(cls, 0.0)) * 8.0,
-                "musical": MUSICAL_FIT.get(c.role, MUSICAL_FIT[R.CUSTOM]).get(state, 0.0),
-                "visual": (vis_ev.strength if vis_ev is not None and vis_ev.camera == c.name else 0.0)
-                          + float(self.visual_fit(c)),
-                "preference": 0.25 * (c.weight - 1.0) + 0.02 * (c.priority - 5),
-                "freshness": 0.15 * min(1.0, (now - c.last_used_end) / max(self.p.coverage_window, 1.0)),
-            }
-            seq = 0.0
-            if last_cls is not None and last_cls == cls:
-                seq -= 0.15                  # prefer alternating detail / side
-            parts["sequence"] = seq
-            out.append((c, sum(parts.values()), parts))
-        if last_insert is not None and len(out) > 1:
-            # never the same insert twice around the master (M-A-M-A) while an alternative exists
-            out = [x for x in out if x[0].name != last_insert.camera]
-        if state == MusicState.INCREASING and len(out) > 1:
-            # build-up: keep the reveal shot back for the drop (tension, then release)
-            rc = self.reveal_camera()
-            if rc is not None:
-                out = [x for x in out if x[0].name != rc.name]
-        out.sort(key=lambda x: (-x[1], x[0].name))
-        return out
+        """WHAT: candidates ranked by the shot planner (explainable, deterministic)."""
+        ranked = self.planner.what(now, cur, state, cov, targets, vis_ev, ignore_cooldown, gesture)
+        self._ranked = ranked
+        return [(c.camera, c.score, c.parts) for c in ranked]
 
     # ------------------------------------------------------------------ EXIT (on a secondary)
     def _exit(self, now: float, snap, state: MusicState, cur: Camera, sp: ShotSpec, tos: float,
@@ -665,7 +662,8 @@ class DirectorEngine:
                                 kind="exit", trigger="musical", music=True, deadline=deadline)
         mc = self.mixer_camera()
         if (trig_ev is not None and trig_ev.kind in GESTURES and tos >= sp.min
-                and self._reveal_ok(now, mc, cur) and mc.allows(state.value)):
+                and self._reveal_ok(now, mc, cur) and mc.allows(state.value)
+                and self.planner.gesture_corroboration() > 0.5):
             timing, target_t = self._timing(now, snap, urgent=True, deadline=deadline)
             return self._commit(now, mc.name, f"exit: DJ {_gesture_text(trig_ev)} ({trig_ev.confidence:.2f}); "
                                 f"to the mixer {mc.name}", max(0.6, trig_ev.confidence), trig, state, timing,
@@ -734,23 +732,7 @@ class DirectorEngine:
         return alts[0][0] if alts else anchor
 
     def _insert_length(self, sp: ShotSpec, cov: dict, targets: dict) -> float:
-        """Planned insert length, pulled inside the preferred window by the class budget.
-
-        The variety-sequence length is *compressed* towards the short end when the
-        class is over budget and towards the long end when under (at most 70 %), so
-        some variety always survives and lengths never collapse onto one value.
-        """
-        over = cov.get(sp.cls, 0.0) - targets.get(sp.cls, 0.0)
-        # relative balance among insert classes: a class far better served than the most
-        # starved one gives way (e.g. side shots shorten while detail is under budget)
-        rel = {c: cov.get(c, 0.0) / t - 1.0 for c, t in targets.items() if c != COVER_MASTER and t > 0}
-        lead = rel.get(sp.cls, 0.0) - min(rel.values()) if rel else 0.0
-        g = self.p.coverage_gain
-        if over > 0 or lead > 0.05:
-            bound, k = sp.pref_min, min(0.7, g * max(over * 10.0, lead * 1.5))
-        else:
-            bound, k = sp.pref_max, min(0.85, g * -over * 15.0)
-        return min(max(self.shot_target + (bound - self.shot_target) * k, sp.pref_min), sp.pref_max)
+        return self.planner.how_long_insert(sp, cov, targets)
 
     def _continuity(self, now: float, cur: Camera, state: MusicState, snap) -> str:
         """Reason to let the insert run to the end of its preferred window (never beyond)."""
@@ -810,7 +792,8 @@ class DirectorEngine:
             self.pending = None
             return self._switch_now(now, p.target, p.reason, p.confidence, p.opportunity, state,
                                     timing=p.timing, target_t=p.fire_at + self.s.latency_offset,
-                                    cid=p.correlation_id, scores=p.scores, kind=p.kind, trigger=p.trigger)
+                                    cid=p.correlation_id, scores=p.scores, kind=p.kind, trigger=p.trigger,
+                                    plan=p.plan)
         return self._decision(now, DirectorAction.HOLD, p.target,
                               f"switch to {p.target} scheduled on {p.timing.value}", p.confidence, state,
                               cid=p.correlation_id, target_t=p.fire_at + self.s.latency_offset)
@@ -819,23 +802,46 @@ class DirectorEngine:
                 state: MusicState, timing: TimingMode, target_t: float, scores: tuple, kind: str,
                 trigger: str, music: bool = False, deadline: float = math.inf) -> DirectorDecisionEvent:
         cid = next_correlation_id()
+        plan = self._plan(reason, target, timing, max(0.0, (target_t or now) - now))
         if timing == TimingMode.IMMEDIATE or target_t - self.s.latency_offset <= now:
             return self._switch_now(now, target, reason, confidence, opportunity, state, timing=timing,
-                                    target_t=target_t or now, cid=cid, scores=scores, kind=kind, trigger=trigger)
+                                    target_t=target_t or now, cid=cid, scores=scores, kind=kind, trigger=trigger,
+                                    plan=plan)
         self.pending = PendingSwitch(target, target_t - self.s.latency_offset, now, timing, reason,
-                                     opportunity, confidence, cid, music, scores, kind, trigger, deadline)
+                                     opportunity, confidence, cid, music, scores, kind, trigger, deadline, plan)
         wait = {TimingMode.PHRASE: "phrase boundary (4/8 bars after the last drop)"}.get(timing, timing.value)
         return self._decision(now, DirectorAction.SCHEDULE, target, f"{reason}; waiting for next {wait}",
                               confidence, state, opportunity=opportunity, timing=timing, target_t=target_t,
-                              cid=cid, scores=scores)
+                              cid=cid, scores=scores, plan=plan)
+
+    def _plan(self, reason: str, target: str, timing, wait_s: float) -> tuple:
+        cam = self.reg.get(target)
+        if cam is None:
+            return ()
+        cand = next((c for c in self._ranked if c.camera.name == target), None)
+        return self.planner.plan(reason.split("; ")[0], cam, timing, wait_s, cand).as_tuple()
 
     # ------------------------------------------------------------------ opportunities
     def _music_trigger(self) -> tuple[float, Optional[MusicEvent]]:
+        """Strongest pending musical / gesture reason to cut.
+
+        Low confidence is conservative: with an uncertain music state only clear events count.
+        A gesture heard in the audio is weighted by how much the picture backs it up.
+        """
         best, best_ev = 0.0, None
+        sn = self._last_snap
+        uncertain = sn is not None and sn.state in (MusicState.UNCERTAIN,)
+        corroboration = None
         for e in self._triggers:
             if e.confidence < self.p.musical_cut_confidence:
                 continue
+            if uncertain and e.confidence < 0.75:
+                continue
             v = EVENT_WEIGHT[e.kind] * e.confidence * self.p.music_trigger_gain
+            if e.kind in GESTURES:
+                if corroboration is None:
+                    corroboration = self.planner.gesture_corroboration()
+                v *= corroboration
             if v > best:
                 best, best_ev = v, e
         return best, best_ev
@@ -937,17 +943,19 @@ class DirectorEngine:
     def _switch_now(self, now: float, target: str, reason: str, confidence: float, opportunity: float,
                     state: Optional[MusicState], timing: TimingMode = TimingMode.IMMEDIATE,
                     target_t: float = 0.0, cid: int = 0, scores: tuple = (),
-                    kind: str = "", trigger: str = "") -> DirectorDecisionEvent:
+                    kind: str = "", trigger: str = "", plan: tuple = ()) -> DirectorDecisionEvent:
         cid = cid or next_correlation_id()
         prev = self.current
         tos = now - self.shot_start
         self._start_shot(target, now, reason)
         if trigger == "gesture":
             self._open_mix_shot()
+        if not plan:
+            plan = self._plan(reason, target, timing, 0.0)
         self.cut_times.append(now)
         return self._decision(now, DirectorAction.SWITCH, target, reason, confidence, state,
                               opportunity=opportunity, timing=timing, target_t=target_t or now, cid=cid,
-                              scores=scores, current=prev, tos=tos)
+                              scores=scores, current=prev, tos=tos, plan=plan)
 
     def _open_mix_shot(self) -> None:
         """Turn the shot just started into a mixer shot: preferred ~0.72*cap .. cap-1, its own cap.
@@ -1004,10 +1012,10 @@ class DirectorEngine:
                   confidence: float, state: Optional[MusicState], opportunity: float = 0.0,
                   timing: Optional[TimingMode] = None, target_t: float = 0.0, cid: int = 0,
                   scores: tuple = (), priority: int = 0, current: Optional[str] = None,
-                  tos: Optional[float] = None) -> DirectorDecisionEvent:
+                  tos: Optional[float] = None, plan: tuple = ()) -> DirectorDecisionEvent:
         return DirectorDecisionEvent(
             t=now, action=action, current_camera=current if current is not None else self.current,
             candidate_camera=candidate, reason=reason, confidence=round(float(confidence), 3),
             time_on_shot=round(tos if tos is not None else now - self.shot_start, 3),
             music_state=state or MusicState.NO_SIGNAL, opportunity=round(opportunity, 3),
-            timing=timing, target_t=target_t, priority=priority, correlation_id=cid, scores=scores)
+            timing=timing, target_t=target_t, priority=priority, correlation_id=cid, scores=scores, plan=plan)

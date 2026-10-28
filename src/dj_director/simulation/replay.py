@@ -21,6 +21,7 @@ from dj_director.config.schema import (AnalysisConfig, CameraConfig, CameraRole,
                                        to_dict)
 from dj_director.core.events import DirectorAction, DirectorDecisionEvent
 from dj_director.director.cameras import CameraRegistry
+from dj_director.director.continuity import sequence_report
 from dj_director.director.engine import MIX_SHOT_RANGE, DirectorEngine, EngineSettings
 from dj_director.music.analyzer import AnalysisPipeline
 from dj_director.simulation.metrics import (EditorialMetrics, ShotRecord, compute_metrics,
@@ -35,6 +36,27 @@ def default_cameras(n: int = 3) -> list[CameraConfig]:
     names = ["Cam Master", "Cam Mixer Detail", "Cam Side", "Cam Behind", "Cam Wide"]
     return [CameraConfig(scene_name=names[i], role=roles[i], is_master=(i == 0))
             for i in range(min(n, len(roles)))]
+
+
+def framed_cameras() -> list[CameraConfig]:
+    """A realistic 4-camera booth with framing metadata and one digital crop (5 OBS scenes).
+
+    CAM1 is a front camera used twice: a wide master and a medium crop (same source).
+    """
+    from dj_director.config.schema import ScreenDirection, ShotSize, Subject, ViewAngle
+    S, J, V = ShotSize, Subject, ViewAngle
+    return [
+        CameraConfig("CAM1 Wide", role=CameraRole.MASTER, is_master=True, shot_size=S.WIDE, subject=J.DJ,
+                     view_angle=V.FRONT, source_group="cam1"),
+        CameraConfig("CAM1 Medium", role=CameraRole.SIDE, shot_size=S.MEDIUM, subject=J.DJ, view_angle=V.FRONT,
+                     source_group="cam1", crop_zoom=1.6),
+        CameraConfig("CAM2 Mixer", role=CameraRole.DETAIL, shot_size=S.CLOSE, subject=J.HANDS,
+                     view_angle=V.TOP, source_group="cam2"),
+        CameraConfig("CAM3 Side", role=CameraRole.SIDE, shot_size=S.MEDIUM, subject=J.DJ, view_angle=V.LEFT,
+                     source_group="cam3", screen_direction=ScreenDirection.RIGHT),
+        CameraConfig("CAM4 Behind", role=CameraRole.BEHIND, shot_size=S.WIDE, subject=J.CROWD,
+                     view_angle=V.BACK, source_group="cam4"),
+    ]
 
 
 @dataclass
@@ -161,15 +183,21 @@ def run_replay(audio: np.ndarray, sr: int, cameras: Sequence[CameraConfig] | Non
     targets = engine.coverage_targets()
     metrics = compute_metrics("music-aware", shots, master, mins, cools, beat_times, section_starts,
                               phrase_times, classes, caps, targets, engine.p.coverage_window, gcap)
+    cams = {c.name: c for c in reg}
+
+    def with_continuity(m, seq):
+        return dataclasses.replace(m, **sequence_report([s.camera for s in seq], cams))
+    metrics = with_continuity(metrics, shots)
     result = SimResult(shots, decisions, states, music_events, metrics, duration=total)
     if baselines:
         names = [c.name for c in reg]
-        result.baselines["timer-12s"] = compute_metrics(
-            "timer-12s", timer_baseline(names, total), master, mins, cools, None, section_starts,
-            phrase_times, classes, caps, targets, engine.p.coverage_window, gcap)
-        result.baselines["random"] = compute_metrics(
-            "random", random_baseline(names, total, seed), master, mins, cools, None, section_starts,
-            phrase_times, classes, caps, targets, engine.p.coverage_window, gcap)
+        tb, rb = timer_baseline(names, total), random_baseline(names, total, seed)
+        result.baselines["timer-12s"] = with_continuity(compute_metrics(
+            "timer-12s", tb, master, mins, cools, None, section_starts,
+            phrase_times, classes, caps, targets, engine.p.coverage_window, gcap), tb)
+        result.baselines["random"] = with_continuity(compute_metrics(
+            "random", rb, master, mins, cools, None, section_starts,
+            phrase_times, classes, caps, targets, engine.p.coverage_window, gcap), rb)
     return result
 
 
@@ -179,7 +207,8 @@ def format_report(r: SimResult) -> str:
             "longest_shot_s", "duration_cv", "abab_patterns", "min_duration_violations",
             "cooldown_violations", "max_consecutive_inserts", "beat_synced_cuts",
             "beat_alignment_median_ms", "cuts_near_section_change", "cuts_on_phrase_grid",
-            "hard_cap_violations", "repeated_intervals", "coverage_max_deviation"]
+            "hard_cap_violations", "repeated_intervals", "coverage_max_deviation", "jump_cuts",
+            "axis_crossings", "repeated_transitions"]
     w = 26
     lines = ["metric".ljust(w) + "".join(m.name.rjust(14) for m in rows)]
     for k in keys:
