@@ -39,8 +39,10 @@ from dj_director.config.presets import resolve_params
 from dj_director.config.schema import AppConfig
 from dj_director.config.secrets import SecretStore
 from dj_director.core.events import (AudioStatusEvent, DirectorAction, DirectorDecisionEvent,
-                                     ExternalSceneChange, MusicSnapshot, ObsStatusEvent,
-                                     SceneSwitchConfirmed, SceneSwitchFailed, SceneSwitchRequested)
+                                     ExternalSceneChange, MusicSnapshot, ObsStatusEvent, ProgramChanged,
+                                     SceneSwitchCancelled, SceneSwitchConfirmed, SceneSwitchFailed,
+                                     SceneSwitchRequested)
+from dj_director.core.switching import AirtimeLedger, SwitchRecord, SwitchStatus, SwitchTracker
 from dj_director.diagnostics.logging_setup import DecisionLog, register_secret
 from dj_director.director.calibration import CalibrationRunner
 from dj_director.director.cameras import CameraRegistry
@@ -95,6 +97,10 @@ class AppSnapshot:
     coverage: tuple = ()               # ((class, share, target), ...) over the sliding window
     vision: Optional[VisionStatus] = None
     reveal_camera: Optional[str] = None
+    switches: tuple = ()               # recent SwitchRecord (REQUESTED / CONFIRMED / FAILED / CANCELLED)
+    switch_problem: Optional[SwitchRecord] = None
+    airtime: tuple = ()                # ((scene, seconds), ...) confirmed on air, sliding window
+    program: Optional[str] = None      # what is really in Program (OBS), or the decision in Shadow
 
 
 class AppController:
@@ -127,12 +133,16 @@ class AppController:
         self._last_hold_reason = ""
         self._last_hold_logged = 0.0
         self._inflight: dict[int, tuple[str, Optional[str]]] = {}   # cid -> (scene, previous)
+        self.switches = SwitchTracker()
+        self.airtime = AirtimeLedger()
+        self._lost_obs_while_live = False
         self._decision_ms = 0.0
         self.calibration: Optional[CalibrationRunner] = None
         self.registry = CameraRegistry.from_configs(self.config.cameras)
         self.engine = self._build_engine()
         self.obs.on_external_change = lambda e: self._post("external", e)
         self.obs.on_switch_result = lambda e: self._post("switch_result", e)
+        self.obs.on_program_changed = lambda e: self._post("program", e)
         self.obs.on_scene_renamed = lambda old, new: self._post("rename", old, new)
         self.obs.on_scenes_changed = lambda scenes: self._post("scenes", scenes)
 
@@ -337,17 +347,39 @@ class AppController:
             elif kind == "external":
                 e: ExternalSceneChange = cmd[1]
                 if self.status in (DirectorStatus.LIVE, DirectorStatus.ARMED, DirectorStatus.PAUSED):
+                    # never let a queued cut overwrite what the operator just chose
+                    self.obs.cancel_queued("manual change in OBS")
                     if e.scene != self.engine.current:
                         d = self.engine.on_external_change(e.scene, now)
                         self._record(d)
+            elif kind == "program":
+                p: ProgramChanged = cmd[1]
+                if not self.shadow:                  # Shadow counts its own decisions, not OBS
+                    self.airtime.on_program(p.scene, p.t)
+                if p.ours:
+                    late = self.switches.late_confirmation(p.scene, p.t)
+                    if late is not None and self.engine.current != p.scene and not self.shadow:
+                        # we gave this cut up (timeout) but OBS applied it: follow what is on air
+                        log.warning("late confirmation of %s: adopting it", p.scene)
+                        self.engine.sync_current(p.scene, now)
+                    elif self.engine.current == p.scene:
+                        self.engine.on_switch_confirmed(p.scene, p.t)
             elif kind == "switch_result":
                 ev = cmd[1]
                 self.decision_log.write(type(ev).__name__, ev)
                 info = self._inflight.pop(ev.correlation_id, None)
-                if isinstance(ev, SceneSwitchFailed) and info is not None:
-                    scene, previous = info
-                    if self.engine.current == scene:
-                        self.engine.on_switch_failed(scene, previous, now)
+                if isinstance(ev, SceneSwitchConfirmed):
+                    self.switches.confirmed(ev.correlation_id, ev.t, ev.round_trip_ms)
+                elif isinstance(ev, SceneSwitchCancelled):
+                    # superseded: the engine already moved on to the newer cut; manual change / stop:
+                    # handled by the override logic. Either way nothing to roll back.
+                    self.switches.cancelled(ev.correlation_id, ev.t, ev.reason)
+                elif isinstance(ev, SceneSwitchFailed):
+                    self.switches.failed(ev.correlation_id, ev.t, ev.error)
+                    if info is not None:
+                        scene, previous = info
+                        if self.engine.current == scene:
+                            self.engine.on_switch_failed(scene, previous, now)
             elif kind == "rename":
                 old, new = cmd[1], cmd[2]
                 if self.registry.rename(old, new):
@@ -414,18 +446,31 @@ class AppController:
             if not self.obs.can_switch():
                 if st == DirectorStatus.LIVE:
                     self.engine.pending = None
+                    self._lost_obs_while_live = True
                 self._set_status(DirectorStatus.ARMED, "waiting for OBS connection")
                 return
             if st != DirectorStatus.LIVE:
-                # (re)entering LIVE: adopt what is on air if it is one of our cameras
-                if self.registry.get(self.obs.program) and self.engine.current != self.obs.program:
-                    self.engine.sync_current(self.obs.program, now)
+                prog = self.obs.program
+                if self._lost_obs_while_live and prog and prog != self.engine.current:
+                    # OBS came back showing something else: somebody chose it while we were away.
+                    # Treat it as a manual change (override policy), never overwrite it silently.
+                    self._lost_obs_while_live = False
+                    self._record(self.engine.on_external_change(prog, now))
+                elif self.registry.get(prog) and self.engine.current != prog:
+                    # (re)entering LIVE: adopt what is on air if it is one of our cameras
+                    self.engine.sync_current(prog, now)
+                self._lost_obs_while_live = False
+                self.airtime.on_program(prog or None, now)
                 self._set_status(DirectorStatus.LIVE, "")
         elif st != DirectorStatus.SHADOW:
             for c in self.registry:
                 if not self.obs.scenes_valid:
                     c.available = True           # shadow without OBS: assume all present
             self._set_status(DirectorStatus.SHADOW, "decisions are logged, OBS is not commanded")
+        for rec in self.switches.expire(now, self.config.obs.request_timeout + 3.0):
+            info = self._inflight.pop(rec.cid, None)
+            if info is not None and self.engine.current == info[0]:
+                self.engine.on_switch_failed(info[0], info[1], now)
         snap = self.analysis.latest()
         events = self.analysis.drain_events()
         self.vision.set_beat_period(snap.beat.period if snap is not None else 0.0)
@@ -456,13 +501,16 @@ class AppController:
         with self._lock:
             self._last_switch = d
         if self.shadow:
+            self.airtime.on_program(d.candidate_camera, d.t)      # Shadow: the decision is the "air"
             return
         scene = d.candidate_camera
         req = SceneSwitchRequested(time.monotonic(), scene, d.correlation_id)
         self.decision_log.write("SceneSwitchRequested", req)
         self._inflight[d.correlation_id] = (scene, previous)
+        self.switches.request(d.correlation_id, scene, previous, req.t)
         if not self.obs.switch_program(scene, d.correlation_id):
             self._inflight.pop(d.correlation_id, None)
+            self.switches.failed(d.correlation_id, time.monotonic(), "OBS not ready or scene missing")
             self.engine.on_switch_failed(scene, previous, time.monotonic())
             self.decision_log.write("SceneSwitchFailed",
                                     SceneSwitchFailed(time.monotonic(), scene, d.correlation_id,
@@ -505,7 +553,11 @@ class AppController:
             override_active=now < e.override_until,
             coverage=self._coverage(now),
             vision=self.vision.status(),
-            reveal_camera=self._reveal_name())
+            reveal_camera=self._reveal_name(),
+            switches=tuple(self.switches.recent(8)),
+            switch_problem=self.switches.last_problem(),
+            airtime=tuple(sorted(self.airtime.shares(now).items(), key=lambda kv: -kv[1])),
+            program=self.airtime.current() if self.shadow or not self.obs.connected else (self.obs.program or None))
 
     def _coverage(self, now: float) -> tuple:
         e = self.engine

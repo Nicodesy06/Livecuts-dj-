@@ -217,6 +217,23 @@ class SceneSwitchFailed:
 
 
 @dataclass(frozen=True)
+class SceneSwitchCancelled:
+    """A queued command that was never sent (superseded by a newer cut, manual change, stop)."""
+    t: float
+    scene: str
+    correlation_id: int
+    reason: str
+
+
+@dataclass(frozen=True)
+class ProgramChanged:
+    """OBS reported a Program scene change; ``ours`` = attributed to one of our requests."""
+    t: float
+    scene: str
+    ours: bool
+
+
+@dataclass(frozen=True)
 class ObsStatusEvent:
     t: float
     connected: bool

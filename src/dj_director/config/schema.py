@@ -116,7 +116,7 @@ _RANGES: dict[str, tuple[float, float]] = {
     "detail_hard_cap": HARD_CAP_RANGE[COVER_DETAIL],
     "side_hard_cap": HARD_CAP_RANGE[COVER_SIDE],
     "visual_novelty_threshold": (0.05, 1.0),
-    "mix_shot_cap": (15.0, 25.0),
+    "mix_shot_cap": (12.0, 25.0),
     "judge_interval": (3.0, 60.0),
     "judge_timeout": (2.0, 60.0),
 }
@@ -234,7 +234,7 @@ class DirectorParams:
     drop_reveal: bool = True
     # --- DJ gestures heard in the audio (0.3): EQ / isolator kills and filters -> mixer camera
     mix_gestures: bool = True
-    mix_shot_cap: float = 20.0        # cap of a mixer shot held during a gesture (15-25 s)
+    mix_shot_cap: float = 14.0        # cap of a mixer shot held during a gesture (12-25 s; 14 = Detail max)
 
 
 @dataclass

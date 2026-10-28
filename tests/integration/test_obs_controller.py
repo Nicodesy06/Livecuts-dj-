@@ -158,3 +158,60 @@ def test_obs_shutdown_during_session():
         assert c.state in ("disconnected", "connecting")
     finally:
         c.stop()
+
+
+# ----------------------------------------------------------------------------- P0: request lifecycle
+from dj_director.core.events import ProgramChanged, SceneSwitchCancelled  # noqa: E402
+
+
+def test_queued_command_superseded_by_a_newer_cut_is_cancelled(ctrl, server):
+    server.response_delay = 0.4                    # first command in flight, the next ones queue up
+    ctrl.switch_program("Cam Detail", 1)
+    time.sleep(0.1)
+    ctrl.switch_program("Cam Side", 2)             # queued
+    ctrl.switch_program("BRB", 3)                  # replaces 2 before it is sent
+    assert wait(lambda: len(ctrl.results) >= 3, 5)
+    by_id = {r.correlation_id: r for r in ctrl.results}
+    assert isinstance(by_id[2], SceneSwitchCancelled) and "superseded" in by_id[2].reason
+    assert isinstance(by_id[1], SceneSwitchConfirmed) and isinstance(by_id[3], SceneSwitchConfirmed)
+    assert [d.get("sceneUuid") for t, d in server.requests if t == "SetCurrentProgramScene"] == [
+        server._uuid("Cam Detail"), server._uuid("BRB")]       # "Cam Side" was never sent
+
+
+def test_manual_change_cancels_the_queued_cut(ctrl, server):
+    server.response_delay = 0.4
+    ctrl.switch_program("Cam Detail", 1)
+    time.sleep(0.1)
+    ctrl.switch_program("Cam Side", 2)             # still queued when the operator acts
+    ctrl.cancel_queued("manual change in OBS")
+    assert wait(lambda: any(isinstance(r, SceneSwitchCancelled) for r in ctrl.results), 3)
+    time.sleep(0.8)
+    sent = [d.get("sceneUuid") for t, d in server.requests if t == "SetCurrentProgramScene"]
+    assert server._uuid("Cam Side") not in sent
+
+
+def test_timeout_then_late_apply_is_not_mistaken_for_the_operator(server):
+    c = ObsController(ObsConfig(port=server.port, request_timeout=0.3, connect_timeout=2.0), lambda: "pw")
+    c.results, c.external, c.programs = [], [], []
+    c.on_switch_result = c.results.append
+    c.on_external_change = c.external.append
+    c.on_program_changed = c.programs.append
+    c.start()
+    try:
+        assert wait(lambda: c.connected)
+        server.response_delay = 0.8                # OBS answers after our timeout, but does switch
+        c.switch_program("Cam Side", 5)
+        assert wait(lambda: c.results, 3)
+        assert isinstance(c.results[0], SceneSwitchFailed) and "timed out" in c.results[0].error
+        assert wait(lambda: any(p.scene == "Cam Side" for p in c.programs), 3)
+        late = [p for p in c.programs if p.scene == "Cam Side"][0]
+        assert late.ours and c.external == []
+    finally:
+        server.response_delay = 0.0
+        c.stop()
+
+
+def test_missed_program_event_is_reconciled_by_polling(ctrl, server):
+    server.silent_switch("Cam Detail")             # Program changed, event lost
+    assert wait(lambda: ctrl.external, 8)
+    assert ctrl.external[0].scene == "Cam Detail" and ctrl.status().program_scene == "Cam Detail"

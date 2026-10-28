@@ -47,8 +47,9 @@ Scene awareness (0.2)
 DJ gestures (0.3)
     Heard in the master audio, no MIDI needed: an EQ / isolator kill or a filter
     sweep (one end of the spectrum gone, the rest of the mix untouched) cuts to
-    the *mixer camera*, which is held 15-20 s while the gesture lasts (its own
-    cap, ``mix_shot_cap``). When the bass slams back in (or a drop re-enters),
+    the *mixer camera*, which is held while the gesture lasts, up to its own
+    cap ``mix_shot_cap`` (14 s by default = the ordinary Detail maximum,
+    configurable 12-25 s). When the bass slams back in (or a drop re-enters),
     the reveal shot opens on the beat. A track that empties by itself is not a
     gesture: that is the sparse / re-entry logic.
 
@@ -102,7 +103,7 @@ GESTURES = ("eq_cut", "filter")            # the DJ is working the mixer -> mixe
 DROP_EVENTS = ("reentry", "eq_return")     # the low end slams back in -> reveal shot
 GESTURE_TEXT = {"low": "cuts the lows", "high": "cuts the highs", "high-pass": "high-pass filter",
                 "low-pass": "low-pass filter"}
-MIX_SHOT_RANGE = (15.0, 25.0)             # cap of a mixer shot held during a DJ gesture
+MIX_SHOT_RANGE = (12.0, 25.0)             # cap of a mixer shot held during a DJ gesture
 PHRASE_BEATS = 16      # 4 bars of 4/4: the smallest phrase unit dance music is built from
 PHI_INV = 0.6180339887498949
 COVERAGE_PRIOR_S = 45.0            # pseudo-seconds at target shares: smooths the first minutes
@@ -294,6 +295,21 @@ class DirectorEngine:
                 self.consecutive_inserts = 0
         if self.cut_times:
             self.cut_times.pop()
+
+    def on_switch_confirmed(self, scene: str, t: float) -> None:
+        """OBS confirmed ``scene`` in Program at ``t``: exposure statistics use the real on-air time.
+
+        Only the bookkeeping of the shot history moves (by at most 3 s); planning keeps the decision
+        time, so caps stay conservative.
+        """
+        if not self.history:
+            return
+        cur = self.history[-1]
+        if cur.camera != scene or cur.end is not None or t <= cur.start:
+            return
+        cur.start += min(t - cur.start, 3.0)
+        if len(self.history) >= 2 and self.history[-2].end is not None:
+            self.history[-2].end = cur.start
 
     def force(self, scene: str, now: float, reason: str) -> DirectorDecisionEvent:
         """Explicit operator command (e.g. Force Master). Bypasses opportunity."""
@@ -934,13 +950,17 @@ class DirectorEngine:
                               scores=scores, current=prev, tos=tos)
 
     def _open_mix_shot(self) -> None:
-        """Turn the shot just started into a mixer shot: preferred 15 s .. cap-1, its own cap (15-25 s)."""
+        """Turn the shot just started into a mixer shot: preferred ~0.72*cap .. cap-1, its own cap.
+
+        The default cap equals the ordinary Detail maximum (14 s): a gesture makes the mixer shot
+        relevant and lets it run to the end of what a Detail may last, never beyond.
+        """
         sp = self.shot_spec
         if sp is None:
             return
         lo, hi = MIX_SHOT_RANGE
         cap = min(max(self.p.mix_shot_cap, lo), hi)
-        pmin, pmax = min(15.0, cap - 2.0), cap - 1.0
+        pmin, pmax = round(cap * 0.72, 1), cap - 1.0
         self.shot_spec = ShotSpec(sp.min, pmin, pmax, cap, sp.cooldown, sp.cls)
         self.shot_target = pmin + self._last_frac * (pmax - pmin)
         self._mix_shot = True

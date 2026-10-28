@@ -515,7 +515,7 @@ PARAM_LABELS = {
     "detail_hard_cap": ("Detail hard cap (s)", 12.0, 15.0, 0.5),
     "side_hard_cap": ("Side hard cap (s)", 20.0, 25.0, 0.5),
     "visual_novelty_threshold": ("Visual novelty threshold", 0.05, 1.0, 0.05),
-    "mix_shot_cap": ("Mixer shot cap during a DJ gesture (s)", 15.0, 25.0, 0.5),
+    "mix_shot_cap": ("Mixer shot cap during a DJ gesture (s)", 12.0, 25.0, 0.5),
 }
 
 

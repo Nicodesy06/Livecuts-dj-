@@ -69,8 +69,9 @@ def test_a_track_emptying_by_itself_is_not_a_dj_gesture():
 def test_replay_mixer_shot_then_reveal_when_the_bass_comes_back():
     tr = generate(sections=[Section("g", 96, ("kick", "hat", "clap", "bass", "pad"))], bpm=124)
     beat = 60 / 124
-    # the DJ kills the bass at bar 9 (master past its minimum, mixer camera unused) for 8 bars
-    cut_at, back_at = 32 * beat, 64 * beat
+    # the DJ kills the bass at bar 9 (master past its minimum, mixer camera unused) for 6 bars:
+    # the bass returns while the mixer shot is still inside its 14 s maximum
+    cut_at, back_at = 32 * beat, 56 * beat
     audio = apply_mixer(tr.audio, tr.sr, [MixMove("low_kill", cut_at, back_at)])
     r = run_replay(audio, tr.sr, default_cameras(4), DirectorConfig(preset="natural"), seed=3, baselines=False)
     mixer = [s for s in r.shots if s.reason.startswith(("entry: DJ cuts the lows", "exit: DJ cuts the lows"))]

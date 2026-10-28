@@ -12,6 +12,13 @@
 * Manual override detection: every program change we request is remembered
   for a short window; a ``CurrentProgramSceneChanged`` event that does not
   match is reported as an external (manual) change.
+* Request lifecycle (0.4): a queued command replaced by a newer one, or
+  dropped because of a manual change / stop, is reported as
+  ``SceneSwitchCancelled``. After a timeout the request stays "expected" for
+  the attribution window, so OBS applying it late is recognised as ours (late
+  confirmation), not as an operator change. Every Program change is reported
+  (``ProgramChanged``) for confirmed on-air statistics, and the Program scene
+  is re-read every few seconds so a missed event cannot desynchronise us.
 """
 
 from __future__ import annotations
@@ -23,12 +30,13 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from dj_director.config.schema import ObsConfig
-from dj_director.core.events import (ExternalSceneChange, ObsStatusEvent, SceneSwitchConfirmed,
-                                     SceneSwitchFailed)
+from dj_director.core.events import (ExternalSceneChange, ObsStatusEvent, ProgramChanged,
+                                     SceneSwitchCancelled, SceneSwitchConfirmed, SceneSwitchFailed)
 from dj_director.obs.client import ObsAuthError, ObsClient, ObsError
 
 log = logging.getLogger(__name__)
 EXPECT_WINDOW = 3.0   # s within which a program change is attributed to our own command
+POLL_PROGRAM_S = 5.0  # re-read the Program scene this often (catches missed events)
 
 
 @dataclass(frozen=True)
@@ -47,6 +55,7 @@ class ObsController:
         self.on_scene_renamed: Callable[[str, str], None] = lambda old, new: None
         self.on_scenes_changed: Callable[[list[SceneInfo]], None] = lambda s: None
         self.on_switch_result: Callable[[object], None] = lambda e: None
+        self.on_program_changed: Callable[[ProgramChanged], None] = lambda e: None
         self._lock = threading.RLock()
         self.state = "disconnected"
         self.error = ""
@@ -66,6 +75,7 @@ class ObsController:
         self._cmd: Optional[tuple[str, int, float]] = None
         self._cmd_thread: Optional[threading.Thread] = None
         self.last_round_trip_ms = 0.0
+        self._last_poll = 0.0
 
     # ------------------------------------------------------------------ lifecycle
     def start(self) -> None:
@@ -84,8 +94,10 @@ class ObsController:
         self._stop.set()
         self._wake.set()
         with self._cmd_lock:
-            self._cmd = None
+            old, self._cmd = self._cmd, None
             self._cmd_lock.notify_all()
+        if old is not None:
+            self.on_switch_result(SceneSwitchCancelled(time.monotonic(), old[0], old[1], "OBS connection stopped"))
         self.client.close()
         for t in (self._supervisor, self._cmd_thread):
             if t is not None:
@@ -149,6 +161,23 @@ class ObsController:
                     continue
             self._wake.wait(1.0)
             self._wake.clear()
+            if self.connected and time.monotonic() - self._last_poll >= POLL_PROGRAM_S:
+                self._poll_program()
+
+    def _poll_program(self) -> None:
+        """Re-read Program: a change we missed is handled exactly like the event would have been."""
+        self._last_poll = time.monotonic()
+        try:
+            lst = self.client.request("GetSceneList", timeout=self.cfg.request_timeout)
+        except Exception as e:
+            log.debug("program poll failed: %s", e)
+            return
+        name = lst.get("currentProgramSceneName", "") or ""
+        with self._lock:
+            changed = bool(name) and name != self.program and self.scenes_valid
+        if changed:
+            log.warning("Program changed without an event (now %s): reconciling", name)
+            self._on_event("CurrentProgramSceneChanged", {"sceneName": name})
 
     def refresh(self) -> None:
         """Re-read version, scenes, program/preview and studio mode."""
@@ -184,6 +213,7 @@ class ObsController:
                 ours = any(n == name for n, _ in self._expected)
                 if ours:
                     self._expected = [(n, t) for n, t in self._expected if n != name]
+            self.on_program_changed(ProgramChanged(time.monotonic(), name, ours))
             if not ours:
                 log.info("external program change -> %s", name)
                 self.on_external_change(ExternalSceneChange(time.monotonic(), name))
@@ -259,9 +289,20 @@ class ObsController:
         if not self.can_switch() or not self.scene_exists(scene):
             return False
         with self._cmd_lock:
+            old = self._cmd
             self._cmd = (scene, correlation_id, time.monotonic())
             self._cmd_lock.notify_all()
+        if old is not None:
+            self.on_switch_result(SceneSwitchCancelled(time.monotonic(), old[0], old[1],
+                                                       "superseded by a newer cut"))
         return True
+
+    def cancel_queued(self, reason: str) -> None:
+        """Drop a command not sent yet (e.g. the operator just switched by hand)."""
+        with self._cmd_lock:
+            old, self._cmd = self._cmd, None
+        if old is not None:
+            self.on_switch_result(SceneSwitchCancelled(time.monotonic(), old[0], old[1], reason))
 
     def _command_loop(self) -> None:
         while not self._stop.is_set():
@@ -285,6 +326,10 @@ class ObsController:
                 rt = (time.perf_counter() - t0) * 1000
                 self.last_round_trip_ms = rt
                 self.on_switch_result(SceneSwitchConfirmed(time.monotonic(), scene, cid, rt))
+            except TimeoutError as e:
+                # OBS may still apply it: keep it "expected" so a late change is not taken for the operator
+                log.warning("scene switch to %s timed out: %s", scene, e)
+                self.on_switch_result(SceneSwitchFailed(time.monotonic(), scene, cid, f"timed out: {e}"))
             except Exception as e:
                 with self._lock:
                     self._expected = [(n, t) for n, t in self._expected if n != scene]

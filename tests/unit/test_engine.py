@@ -388,15 +388,23 @@ def test_dj_cutting_the_bass_cuts_to_the_mixer_on_the_beat():
     assert sw[0].timing in (TimingMode.BEAT, TimingMode.DOWNBEAT)
 
 
-def test_mixer_shot_is_held_15_20s_while_the_gesture_lasts_never_beyond_its_cap():
+def test_mixer_shot_is_held_while_the_gesture_lasts_never_beyond_the_ordinary_detail_max():
     e = make(4)
     ev = _cut_on_master(e)
     ds = run_g(e, 40, lambda t: "eq_cut:low", lambda t: (ev,) if t == 14.0 else (), start=14.0)
     sw = switches(ds)
     assert sw[0].candidate_camera == "D"
     held = sw[1].t - sw[0].t
-    assert 15.0 <= held <= 20.0 + 0.05, held          # longer than a normal Detail, inside its own cap
-    assert e.p.detail_hard_cap < held                    # the normal detail cap does not apply
+    assert 10.0 <= held <= e.p.detail_hard_cap + 0.05, held     # continuous gesture: still <= 14 s
+
+
+def test_mixer_shot_cap_can_be_raised_to_15_20s():
+    e = make(4, params={"mix_shot_cap": 20.0})
+    ev = _cut_on_master(e)
+    ds = run_g(e, 40, lambda t: "eq_cut:low", lambda t: (ev,) if t == 14.0 else (), start=14.0)
+    sw = switches(ds)
+    held = sw[1].t - sw[0].t
+    assert 14.0 <= held <= 20.0 + 0.05, held
 
 
 def test_bass_coming_back_opens_the_reveal_shot():

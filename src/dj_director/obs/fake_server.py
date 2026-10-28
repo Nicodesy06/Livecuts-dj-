@@ -70,6 +70,10 @@ class FakeObsServer:
         self.program = name
         self.broadcast("CurrentProgramSceneChanged", {"sceneName": name, "sceneUuid": self._uuid(name)})
 
+    def silent_switch(self, name: str) -> None:
+        """Program changes but the event is lost (tests the periodic reconciliation)."""
+        self.program = name
+
     def rename_scene(self, old: str, new: str) -> None:
         for s in self.scenes:
             if s["sceneName"] == old:

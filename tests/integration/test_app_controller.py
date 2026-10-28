@@ -147,3 +147,49 @@ def test_calibration_alternates_cameras_on_beat(env):
     ctrl.stop_director()
     assert wait(lambda: ctrl.status == DirectorStatus.OFF)
     assert ConfigManager().load().director.latency_offset_ms == 120
+
+
+# ----------------------------------------------------------------------------- P0: OBS state synchronisation
+from dj_director.core.switching import SwitchStatus  # noqa: E402
+
+
+def test_manual_change_while_obs_was_away_is_respected_on_reconnect(env):
+    ctrl, srv = env
+    ctrl.start_director(shadow=False)
+    assert wait(lambda: ctrl.status == DirectorStatus.LIVE)
+    srv.refuse_connections = True
+    srv.disconnect_all()
+    assert wait(lambda: ctrl.status == DirectorStatus.ARMED, 3)
+    target = "Cam S" if ctrl.engine.current != "Cam S" else "Cam D"
+    srv.program = target                      # the operator switched in OBS meanwhile
+    srv.refuse_connections = False
+    assert wait(lambda: ctrl.status == DirectorStatus.LIVE, 20)
+    assert wait(lambda: any(d.action.value == "OVERRIDE" for d in ctrl.decisions), 3)
+    n = len(switch_requests(srv))
+    time.sleep(2.5)                           # override (4 s in the test config) is respected
+    assert len(switch_requests(srv)) == n and srv.program == target
+
+
+def test_switch_states_and_confirmed_airtime(env):
+    ctrl, srv = env
+    ctrl.start_director(shadow=False)
+    assert wait(lambda: len(switch_requests(srv)) >= 3, 20)
+    time.sleep(0.5)
+    recs = ctrl.switches.recent(20)
+    assert recs and all(r.status in (SwitchStatus.CONFIRMED, SwitchStatus.CANCELLED) for r in recs[:-1])
+    snap = ctrl.snapshot()
+    total = sum(sec for _, sec in snap.airtime)
+    assert snap.program == srv.program
+    assert total > 3 and dict(snap.airtime).keys() <= {"Cam M", "Cam D", "Cam S"}
+
+
+def test_failed_switch_is_not_counted_as_airtime(env):
+    ctrl, srv = env
+    srv.fail_switches = True                  # OBS refuses every cut
+    ctrl.start_director(shadow=False)
+    assert wait(lambda: ctrl.switches.last_problem() is not None, 20)
+    time.sleep(1.0)
+    snap = ctrl.snapshot()
+    assert snap.switch_problem.status == SwitchStatus.FAILED
+    assert dict(snap.airtime).keys() <= {"Cam M"}            # only what OBS really showed
+    assert ctrl.engine.current in (None, "Cam M")             # rolled back to what is on air
