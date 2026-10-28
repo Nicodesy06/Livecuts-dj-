@@ -318,7 +318,13 @@ class AppController:
                     # start from what is on air if it is one of our cameras; otherwise the
                     # engine's first decision is an immediate cut to the master
                     self.engine.sync_current(self.obs.program, now)
-                self._set_status(DirectorStatus.ARMED, "starting")
+                from dj_director.config.framing import framing_warnings
+                warns = framing_warnings(self.config.cameras)
+                for w in warns:
+                    log.warning("framing: %s", w)
+                # digital crops / framing are validated before going live; never blocking
+                self._set_status(DirectorStatus.ARMED, f"starting ({len(warns)} framing warnings: see Cameras)"
+                                 if warns else "starting")
             elif kind == "stop":
                 self.engine.pending = None
                 if self.calibration is not None:

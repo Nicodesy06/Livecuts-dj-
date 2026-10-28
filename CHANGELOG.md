@@ -3,6 +3,78 @@
 Tutte le modifiche rilevanti di DJ Director AI. Formato ispirato a
 [Keep a Changelog](https://keepachangelog.com/it/1.1.0/); versioni [SemVer](https://semver.org/lang/it/).
 
+## [0.4.0] — 2026-10-28 · Director 2.0: grammatica multicamera professionale
+
+### Affidabilità (P0)
+- **Stato di ogni cambio in OBS**: identificativo univoco, stati REQUESTED → CONFIRMED / FAILED / CANCELLED.
+- **Comandi in coda**: un comando sostituito da un taglio più recente, o superato da un cambio manuale,
+  viene annullato e mai inviato.
+- **Timeout**: OBS che applica una richiesta dopo un timeout viene riconosciuto come conferma tardiva, non
+  come operatore.
+- **Riconciliazione**: il Program viene riletto ogni 5 s per riconciliare gli eventi persi.
+- **Riconnessione**: se OBS torna su una scena diversa, è un **cambio manuale** e viene rispettato.
+- **Rollback** dei cambi falliti o senza risposta.
+- **Statistiche di esposizione** dal tempo **confermato in onda**.
+- **Inquadratura del mixer durante un gesto**: di default ora si ferma al massimo ordinario del Detail
+  (14 s; regolabile 12–25 s, in 0.3 era 20 s).
+
+### Regia professionale (P1)
+- **Metadati delle inquadrature** per camera, tutti facoltativi e mai indovinati: scala, soggetto,
+  angolazione, gruppo visivo, camera fisica, direzione in scena, fattore di crop. Nuovo ruolo **CROWD**.
+- **Motore di continuità** (`director/continuity.py`):
+  - jump cut tra inquadrature quasi uguali;
+  - crop della stessa camera trattati come variazioni di scala;
+  - cambio d'asse fronte-retro con eccezioni di raccordo (non una regola dei 180° rigida);
+  - inversione della direzione in scena;
+  - transizioni ripetute;
+  - bonus per cambi netti di scala, angolazione o soggetto.
+- **Shot Planner** (`director/shot_planner.py`):
+  - separa *perché, cosa, quando, per quanto*;
+  - punteggio spiegabile (copertura, musica, visione, preferenza, freschezza, sequenza, continuità,
+    contesto, qualità) e deterministico;
+  - ogni taglio porta il suo piano nel log e in Dashboard;
+  - i jump cut si fanno solo se non esiste un'alternativa pulita.
+
+### Contesto musicale (P2)
+- **Durate Natural**: MASTER 30–50 s; DETAIL 6–10 s (max 14); OVERHEAD 7–11 s (max 15); SIDE / BEHIND /
+  WIDE 10–17 s (max 23); CROWD 6–12 s. Obiettivo 70% Master / 30% inserti, morbido.
+- **Gesto audio**: aumenta la rilevanza del mixer in proporzione alla conferma dell'immagine. Un evento
+  spettrale da solo non prova un'azione del DJ.
+- **Breakdown**: Master più lungo, budget che non lo accorcia, meno tagli (−28% sul test), preferenza per
+  atmosfera e performer.
+- **Drop**: preferenza per pubblico / campi larghi, mai un dettaglio, mai in ritardo (beat successivo solo
+  entro mezzo beat).
+- **Build-up**: la rivelazione viene tenuta da parte solo con beat e stato affidabili.
+- **Musica incerta**: contano solo eventi con confidenza ≥ 0,75.
+
+### Qualità e diagnostica (P3)
+- **Stati delle sorgenti** HEALTHY / UNKNOWN / FAILED: UNKNOWN non vale mai come "buona".
+- **Nuovi controlli**:
+  - camera in movimento / riposizionamento (correlazione di fase: pubblico e strobo non la attivano);
+  - mixer non visibile (solo la zona di interesse perde dettaglio).
+- **Luci da club**: "nera" solo se buia e piatta; nitidezza relativa al contrasto.
+- **Pagina Camere**: editor delle inquadrature, con avvisi pre-diretta.
+- **Dashboard**: diagnostica della regia.
+  - Program reale e tipo di inquadratura;
+  - stato della sorgente;
+  - perché dell'ultimo taglio;
+  - prossimo taglio;
+  - tempo reale in onda;
+  - ultimo taglio rifiutato o annullato.
+
+### Crop digitali e confronto (P4)
+- **Crop digitali**: più scene OBS dalla stessa camera fisica, validate prima della diretta (zoom
+  eccessivo, crop senza sorgente, dettagli ritagliati, crop alla stessa scala). Avvisi anche all'avvio
+  della regia. Il controllo PTZ non è incluso.
+- **`scripts/compare_engines.py`**: esegue il codice reale di una release precedente e quello attuale
+  sullo stesso audio, con le stesse camere e lo stesso preset.
+
+### Compatibilità
+- Configurazioni, preset, Shadow Mode, simulazione e interventi manuali invariati. Le configurazioni
+  precedenti si caricano senza modifiche, con metadati "sconosciuto".
+- `continuity_weight = 0` e `contextual_grammar = false` riportano la scelta delle camere al
+  comportamento 0.3. Restano invece le nuove durate e i controlli qualità.
+
 ## [0.3.0] — 2026-10-26
 
 ### Aggiunto — il regista sente i gesti del DJ nell'audio

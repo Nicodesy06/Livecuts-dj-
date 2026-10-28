@@ -205,6 +205,7 @@ _REASONS_IT: list[tuple[str, object]] = [
     (r"adopted from OBS", "adottata da OBS"),
     # controller / calibration status messages
     (r"starting", "avvio"),
+    (r"starting \((\d+) framing warnings: see Cameras\)", r"avvio (\1 avvisi sulle inquadrature: vedi Camere)"),
     (r"paused by user", "in pausa (utente)"),
     (r"resuming", "ripresa"),
     (r"waiting: no usable camera scene in OBS", "in attesa: nessuna scena camera utilizzabile in OBS"),

@@ -47,9 +47,13 @@ Durante il set tu pensi solo alla musica. DJ Director:
   BPM, beat e andamento: groove, breakdown, build-up, drop, transizioni;
 - 🎬 **decide** se e quando tagliare e su quale camera, come un regista discreto: riprese lunghe sul
   master, inserti brevi sui dettagli, tagli sul beat e sui confini di frase, mai a ogni cassa;
-- 🎚️ **sente i tuoi gesti sul mixer** (novità 0.3), solo dall'audio, con qualsiasi console, MPC o
-  giradischi: togli i bassi o apri un filtro → camera del mixer per 15–20 s; il basso rientra → camera
-  laterale o wide sul beat. Distingue il tuo taglio dell'EQ dalla traccia che si svuota da sola;
+- 🎞️ **monta come un regista multicamera** (novità 0.4): se descrivi le inquadrature (scala, soggetto,
+  angolazione, camera fisica, crop) evita jump cut e salti d'asse. Segue il momento: breakdown più
+  calmi, drop su pubblico e campi larghi. Ogni taglio ha un *perché, cosa, quando e per quanto* leggibile.
+  Lo stato dei cambi in OBS è verificato, e il tempo in onda è quello confermato;
+- 🎚️ **sente i tuoi gesti sul mixer** (0.3), solo dall'audio, con qualsiasi console, MPC o giradischi:
+  togli i bassi o apri un filtro → la camera del mixer diventa la scelta (più sicura se l'immagine vede le
+  mani muoversi); il basso rientra → camera laterale o wide sul beat;
 - 👁️ **guarda le camere** (novità 0.2): evita inquadrature nere, ferme, sfocate o coperte, nota il
   movimento delle mani sul mixer e il pubblico a tempo. Sul drop apre l'inquadratura più ampia. Se vuoi,
   un modello AI **locale** (offline, con Ollama) o cloud giudica quale camera è più interessante;
@@ -134,16 +138,17 @@ pulsante **Configurazione guidata**.
 
 | Ruolo | Inquadratura | Uso da parte del regista |
 |---|---|---|
-| **MASTER** | Principale, frontale sul DJ | L'"ancora": ~70% del tempo, riprese di solito da 20–50 s |
+| **MASTER** | Principale, frontale sul DJ | L'"ancora": ~70% del tempo, riprese di solito da 30–50 s |
 | **DETAIL** | Mani, mixer, piatti | Inserti brevi (6–10 s, mai oltre 14 s), soprattutto durante i mix |
-| **SIDE** | Laterale | Inserti medi (10–18 s, mai oltre 22 s) |
+| **OVERHEAD** | Dall'alto | Inserti 7–11 s (max 15 s), durante le transizioni |
+| **SIDE** | Laterale | Inserti medi (10–17 s, mai oltre 23 s) |
 | **BEHIND** | Da dietro il DJ, verso la sala | Come SIDE, preferita sulle ripartenze |
-| **WIDE** | Campo largo, pubblico | Come SIDE, preferita sui drop |
-| **OVERHEAD** | Dall'alto | Come DETAIL, durante le transizioni |
+| **WIDE** | Campo largo, sala | Come SIDE, preferita sui drop |
+| **CROWD** | Il pubblico | Inserti 6–12 s, prima scelta sui drop |
 | **CUSTOM** | Altro | Uso neutro (classe SIDE) |
 
-Il regista mantiene un **budget di copertura** morbido su una finestra di 5 minuti: Master 70%,
-Detail 15%, Side/Behind 15%. È una tendenza, non una quota da inseguire secondo per secondo.
+Il regista mantiene un **budget di copertura** morbido su una finestra di 5 minuti: Master 70%, inserti
+30% (Detail 15%, laterali 15%). È una tendenza, non una quota da inseguire secondo per secondo.
 
 ---
 
@@ -176,7 +181,9 @@ Per intervenire durante il set: clicca una scena in OBS (il cambio manuale viene
 
 <img src="docs/images/camere.png" alt="Pagina Camere" width="900">
 
-Associa ogni scena di OBS a un ruolo e scegli il Master. Durate, peso e cooldown sono facoltativi
+Associa ogni scena di OBS a un ruolo e scegli il Master. Nella tabella **Inquadrature** puoi descrivere
+ogni scena (scala, soggetto, angolazione, camera fisica, crop): il regista evita jump cut e salti d'asse e
+segnala i crop digitali problematici prima della diretta. Durate, peso e cooldown sono facoltativi
 ("predefinito" va bene quasi sempre). Se rinomini una scena in OBS, il programma si aggiorna da solo.
 
 ### Audio e rilevamento automatico della sorgente
@@ -317,7 +324,7 @@ Altri casi nella [guida completa](docs/GUIDA_UTENTE.md#12-risoluzione-dei-proble
 git clone https://github.com/Nicodesy06/Livecuts-dj-.git && cd Livecuts-dj-
 python -m venv .venv && . .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements-lock.txt && pip install -e ".[dev]"
-QT_QPA_PLATFORM=offscreen pytest                     # 190+ test: unit, integrazione, GUI, qualità
+QT_QPA_PLATFORM=offscreen pytest                     # 230+ test: unit, integrazione, GUI, qualità
 python -m dj_director                                # avvia l'interfaccia
 ```
 
@@ -334,7 +341,8 @@ dj-director selftest                                            # verifica di un
 **Build Windows**: `powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1` (test, PyInstaller,
 self-test degli eseguibili, guida PDF, zip). La CI (`.github/workflows/build-windows.yml`) fa lo stesso su
 ogni push. Per pubblicare una release: *Actions › test-and-build-windows › Run workflow* con
-`release_tag` (es. `v0.3.0`).
+`release_tag` (es. `v0.4.0`). Confronto prima/dopo con una release precedente sullo stesso materiale:
+`python scripts/compare_engines.py [set.wav] --before v0.3.0`.
 
 **Struttura**
 
@@ -342,7 +350,7 @@ ogni push. Per pubblicare una release: *Actions › test-and-build-windows › R
 src/dj_director/
 ├── audio/       acquisizione (PortAudio, loopback WASAPI, file), riconoscimento e rilevamento sorgenti
 ├── music/       feature spettrali, beat tracker causale, stati musicali
-├── director/    motore decisionale, camere, calibrazione
+├── director/    motore decisionale, shot planner, continuità, camere, calibrazione
 ├── obs/         client obs-websocket 5 con allow-list, controller, OBS simulato
 ├── simulation/  replay deterministico, set sintetico, metriche editoriali
 ├── visual/      visione: istantanee da OBS, occhio veloce, occhio lento (Ollama / API Claude)
@@ -364,7 +372,7 @@ scheda audio. Le immagini delle camere nella pagina Visione sono quelle sintetic
 | Documento | Contenuto |
 |---|---|
 | [Guida all'utilizzo](docs/GUIDA_UTENTE.md) | Manuale completo per l'utente (anche in PDF nella release) |
-| [Come decide il regista](docs/DIRECTOR.md) | Ingresso e uscita, budget di copertura, gesti del DJ dall'audio, visione (occhio veloce e lento), drop, timing, preset |
+| [Come decide il regista](docs/DIRECTOR.md) | Shot planner (perché, cosa, quando, per quanto), continuità, grammatica per contesto, qualità delle sorgenti, sincronizzazione OBS, gesti del DJ, visione, drop, preset |
 | [Architettura](docs/ARCHITECTURE.md) | Moduli, thread, flussi di dati |
 | [Audit tecnico](docs/TECHNICAL_AUDIT.md) | Scelte tecnologiche, librerie e rischi |
 | [Test e risultati](docs/TESTING.md) | Test automatici, misure, checklist dei test manuali |

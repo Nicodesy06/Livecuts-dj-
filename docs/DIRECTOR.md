@@ -13,6 +13,16 @@ può essere solo di due tipi:
 
 Le due decisioni seguono regole diverse.
 
+Dalla v0.4 (**Director 2.0**) ogni taglio risponde esplicitamente a quattro domande, gestite dallo Shot
+Planner (`director/shot_planner.py`):
+
+| Domanda | Chi la decide | Cosa si vede nel log / in Dashboard |
+|---|---|---|
+| **WHY** – perché cambiare | logica di ingresso / uscita dell'engine (evento musicale, gesto del DJ, novità visiva, permanenza editoriale, tetto, veto) | `plan.why` |
+| **WHAT** – quale inquadratura | `ShotPlanner.what`: punteggio con ogni termine visibile | `plan.what` (camera, inquadratura, i tre termini più forti, note di continuità) |
+| **WHEN** – quando | timing musicale (frase > downbeat > beat, latenza compensata) | `plan.when` |
+| **HOW LONG** – per quanto | `how_long_master` / `how_long_insert` dentro la finestra preferita | `plan.how_long` |
+
 ## Priorità per tick
 
 1. **Cambio programmato in attesa**: viene rivalidato (vedi *Rivalidazione*). Poi viene eseguito quando
@@ -28,13 +38,22 @@ Le due decisioni seguono regole diverse.
 ## Ruoli, classi di copertura e durate
 
 Ogni ruolo appartiene a una **classe di copertura**: `master`, `detail` (DETAIL, OVERHEAD) oppure
-`side` (SIDE, BEHIND, WIDE, CUSTOM).
+`side` (SIDE, BEHIND, WIDE, CROWD, CUSTOM).
 
-| Classe | Minimo | Finestra preferita | Tetto assoluto (hard cap) | Cooldown |
+Valori del preset Natural (v0.4):
+
+| Ruolo | Minimo | Finestra preferita | Massimo ordinario (hard cap) | Cooldown |
 |---|---|---|---|---|
-| Master | 12 s | 20–50 s | nessuno | – |
-| Detail | 5 s | 6–10 s | 14 s (configurabile 12–15) | 20 s |
-| Side / Behind / Wide | 7 s | 10–18 s | 22 s (configurabile 20–25) | 15 s |
+| MASTER | 12 s | 30–50 s | nessun tetto editoriale | – |
+| DETAIL | 5 s | 6–10 s | 14 s (classe detail, 12–15) | 20 s |
+| OVERHEAD | 5 s | 7–11 s | 15 s | 20 s |
+| SIDE / BEHIND / WIDE | 7 s | 10–17 s | 23 s (classe side, 20–25) | 15 s |
+| CROWD | 5 s | 6–12 s | 23 s, configurabile | 15 s |
+
+Obiettivo di esposizione: circa **70% Master e 30% inserti** su una finestra mobile di 5 minuti (quota
+morbida, vedi sotto). I massimi degli inserti sono limiti **effettivi**: né il movimento continuo delle
+mani né un punteggio visivo alto li allungano. Fanno eccezione solo l'override manuale (decide l'operatore)
+e le emergenze (camera sparita, veto visivo), che accorciano.
 
 - Il tetto di classe si regola con `detail_hard_cap` e `side_hard_cap`.
 - Ogni camera può avere i propri `preferred_min`, `preferred_max` e `hard_cap`.
@@ -116,7 +135,7 @@ non si ripetono e non sono casuali.
 L'uscita dipende soprattutto dalla **durata**.
 
 1. **Lunghezza pianificata**: viene scelta all'ingresso dentro la finestra preferita (Detail 6–10 s,
-   Side 10–18 s).
+   Side 10–17 s).
    - Valore di base: la sequenza deterministica della classe.
    - **Budget**: una classe sopra target accorcia la lunghezza verso `pref_min`, una sotto target la
      allunga verso `pref_max`.
@@ -169,12 +188,20 @@ inizia a scendere.
 
 **Regia dei gesti**:
 
-1. **Gesto** (`eq_cut`, `filter`): taglio sul beat verso la **camera del mixer**. È la scena scelta in
-   *Regia › Inquadratura del mixer per i gesti del DJ*, altrimenti la DETAIL (o OVERHEAD) con il peso più
-   alto. Vale dal Master, rispettando la sua durata minima e la soglia di ingresso anticipato, oppure da
-   un altro insert dopo la sua durata minima.
-2. **Inquadratura del mixer**: finestra preferita **15–(cap−1) s** e un tetto proprio, `mix_shot_cap`
-   (20 s, regolabile 15–25). È più lunga di un Detail normale, perché il gesto è il soggetto.
+1. **Gesto** (`eq_cut`, `filter`): **aumenta la rilevanza** della **camera del mixer** (la scena scelta
+   in *Regia › Inquadratura del mixer per i gesti del DJ*, altrimenti la DETAIL / OVERHEAD con il peso
+   più alto). Dalla v0.4 un evento spettrale **da solo non prova** un'azione del DJ: il suo peso viene
+   moltiplicato per la conferma dell'immagine.
+   - mani visibilmente in movimento nella zona del mixer: ×1;
+   - nessuna informazione visiva: ×0,75;
+   - immagine del mixer ferma: ×0,4.
+
+   Con il solo audio quindi un Master giovane (sotto i 30 s preferiti) non viene interrotto, mentre a fine
+   permanenza il gesto fa scegliere il mixer. Da un altro insert il gesto porta al mixer dopo la durata
+   minima, se non è smentito dall'immagine.
+2. **Inquadratura del mixer**: finestra preferita **~0,72×cap – (cap−1) s** e un tetto proprio,
+   `mix_shot_cap`, che di default è **14 s, uguale al massimo ordinario del Detail** (regolabile
+   12–25 s; in 0.3 era 20 s).
    - Resta finché il gesto dura ("continuità: il DJ lavora sul mixer"), mai oltre il tetto.
    - Se il DJ molla senza un ritorno netto, esce circa 2 s dopo (non prima di 6 s).
 3. **Il basso rientra** (`eq_return`, come un drop): apre la **camera di rivelazione** (laterale, dietro o
@@ -182,6 +209,101 @@ inizia a scendere.
 
 Le regole fisse restano: niente A-B-A-B (se la camera del mixer è appena stata usata attorno al Master, il
 gesto sceglie un'altra camera), durata minima, veto visivo, override manuale.
+
+## Continuità delle inquadrature (v0.4)
+
+Codice: `director/continuity.py`. Usa i **metadati delle inquadrature**, tutti facoltativi e impostati a
+mano in *Camere › Inquadrature*:
+- scala: `shot_size` (WIDE, MEDIUM, CLOSE, EXTREME_CLOSE);
+- soggetto: `subject` (DJ, HANDS, EQUIPMENT, CROWD, ENVIRONMENT);
+- angolazione: `view_angle` (posizione attorno alla consolle: FRONT, FRONT_LEFT … BACK, TOP);
+- `visual_group` (inquadrature quasi identiche);
+- `source_group` (la camera fisica);
+- `screen_direction`;
+- `crop_zoom`.
+
+Un metadato **sconosciuto non pesa**: niente viene indovinato, e il regista funziona anche con metadati
+parziali o assenti.
+
+| Regola | Effetto sul punteggio |
+|---|---|
+| Stesso `visual_group` (quasi identiche) | −0,8 (jump cut) |
+| Crop della stessa camera fisica: stessa scala / un passo / due o più passi | −0,9 / −0,5 / +0,1. Un crop è una **variazione di scala**, non un nuovo punto di vista |
+| Altra camera ma angolo entro 30°, stessa scala e soggetto | −0,5 (rischio di jump cut) |
+| Fronte ↔ retro (≥ 135°) | −0,35, **salvo un raccordo**: inquadratura dall'alto, dettaglio stretto di mani / attrezzatura, campo largo di sala / pubblico, oppure eccezione editoriale (rivelazione sul drop). Non è una regola dei 180° rigida |
+| Direzione in scena invertita sullo stesso soggetto | −0,2 |
+| Scala diversa di due passi / angolo 60–135° / soggetto diverso | +0,15 / +0,1 / +0,1 |
+| Stessa transizione già usata 2 volte negli ultimi tagli | −0,3 (oltre al divieto rigido di A-B-A-B) |
+
+Un taglio con penalità ≥ 0,5 conta come jump cut. Lo Shot Planner lo scarta **se esiste un'alternativa
+pulita**; se non esiste, lo accetta (il regista non resta mai bloccato). `continuity_weight = 0` disattiva
+la regola (comportamento 0.3).
+
+## Grammatica per contesto musicale (v0.4)
+
+| Contesto | Comportamento |
+|---|---|
+| **Groove stabile** | Master dominante; inserti regolari ma non periodici (sequenza deterministica), anche senza drop; tagli editoriali sui confini di frase |
+| **Mixing attivo** | il gesto sul mixer aumenta la rilevanza del Detail in proporzione alla conferma visiva; l'attività continua delle mani non allunga oltre il massimo |
+| **Breakdown** (*Ritmo ridotto*) | il Master respira di più (×1,3, il budget non lo accorcia), opportunità editoriale ×0,7, preferenza per inquadrature d'atmosfera o sul performer (DJ / sala / pubblico, WIDE / MEDIUM) che possono arrivare a fine finestra. Nessun taglio obbligatorio all'inizio del breakdown. Sul set di test: −28% di tagli |
+| **Build-up** | la rivelazione viene tenuta da parte **solo se** beat e stato musicale sono affidabili |
+| **Drop / ripartenza** | preferenza per CROWD / WIDE / sala (metadati), poi BEHIND / SIDE; mai un Detail. Il taglio prende il beat successivo solo se arriva entro mezzo beat, altrimenti è immediato: mai in ritardo |
+| **Bassa affidabilità / niente segnale** | con stato *Incerto* contano solo eventi con confidenza ≥ 0,75; senza segnale valgono le politiche configurate; nessun taglio speculativo |
+
+`contextual_grammar = false` disattiva questa tabella.
+
+## Controllo qualità delle sorgenti (v0.4)
+
+Ogni camera è in uno di tre stati:
+- **HEALTHY**: immagini recenti, analisi a regime, nessun problema;
+- **FAILED**: un problema che persiste → veto;
+- **UNKNOWN**: nessuna immagine, dato vecchio o analisi in apprendimento.
+
+UNKNOWN **non** vale come "buona": quando l'analisi gira (altre camere sono HEALTHY), una camera UNKNOWN
+prende −0,05 nella scelta.
+
+Problemi aggiunti in 0.4:
+- **camera in movimento / in riposizionamento**: tutta l'immagine si sposta in modo coerente, misurato
+  con la correlazione di fase. Un pubblico che balla o uno strobo non la attivano;
+- **mixer non visibile**: con una zona di interesse impostata, solo quella zona perde dettaglio.
+
+Le luci da club sono considerate:
+- "nera" significa buia **e** piatta (immagine vuota), non semplicemente scura;
+- la nitidezza è misurata in rapporto al contrasto.
+
+## Sincronizzazione con OBS (v0.4)
+
+Codice: `core/switching.py`, `obs/controller.py`.
+
+- Ogni richiesta di cambio ha un identificativo univoco e uno stato: `REQUESTED` → `CONFIRMED`, `FAILED`
+  oppure `CANCELLED`.
+- Un comando in coda **sostituito** da un taglio più nuovo, o scartato perché l'operatore ha cambiato
+  scena a mano, è `CANCELLED` e non viene mai inviato.
+- Dopo un **timeout** la richiesta resta "attesa" per 3 s. Se OBS la applica in ritardo, viene riconosciuta
+  come nostra (conferma tardiva), non come intervento dell'operatore, e il regista si allinea a ciò che è
+  in onda.
+- Le richieste senza risposta scadono. Un cambio rifiutato riporta l'engine all'inquadratura precedente
+  (rollback).
+- Il Program viene **riletto ogni 5 s**: un evento perso viene riconciliato come un cambio esterno.
+- Se OBS si riconnette mostrando una scena diversa da quella attesa, qualcuno l'ha scelta mentre eravamo
+  scollegati: vale come **cambio manuale** e segue la politica di override, senza essere sovrascritta.
+- Le statistiche di esposizione usano il **tempo confermato in onda** (eventi Program di OBS; in Shadow, le
+  decisioni). L'inizio di un'inquadratura nella storia dell'engine viene spostato all'istante confermato.
+
+## Inquadrature digitali (crop) (v0.4)
+
+Più scene OBS possono venire dalla stessa camera fisica (per esempio `CAM1_WIDE` e `CAM1_MEDIUM`). Si
+indicano con lo stesso `source_group` e scale diverse: per la continuità sono **zoom**, non nuovi punti di
+vista. DJ Director **non ritaglia nulla**: i crop sono scene preparate dall'utente.
+
+Prima della diretta `config/framing.py` segnala:
+- crop senza camera fisica;
+- zoom digitale oltre ×2 (perdita di risoluzione);
+- dettagli ritagliati (controllare che mani e mixer restino in quadro);
+- crop della stessa camera alla stessa scala.
+
+Gli avvisi compaiono nella pagina Camere e all'avvio della regia (mai bloccanti). Il controllo PTZ fisico
+non è incluso.
 
 ## Consapevolezza della scena (v0.2)
 
@@ -229,10 +351,10 @@ valida) fa solo aspettare di più prima del tentativo successivo: il regista con
 ## Grammatica del drop (v0.2)
 
 - **Camera di rivelazione**, nell'ordine: la scena scelta in *Regia › Inquadratura che si apre sul drop*;
-  altrimenti il suggerimento dell'occhio lento; altrimenti la camera più larga tra WIDE, BEHIND, SIDE e
-  CUSTOM. Con l'opzione *Spenta* (`drop_reveal = false`) il drop torna al Master come in 0.1.3.
-- **Build-up** (stato *Attività in aumento*): la rivelazione viene **tenuta da parte**, cioè non usata
-  come insert se ci sono alternative. La tensione resta sulle inquadrature strette.
+  altrimenti il suggerimento dell'occhio lento; altrimenti, dalla v0.4, prima le camere che i metadati
+  indicano come larghe o su pubblico / sala, poi per ruolo CROWD, WIDE, BEHIND, SIDE, CUSTOM. Con l'opzione *Spenta* (`drop_reveal = false`) il drop torna al Master come in 0.1.3.
+- **Build-up** (stato *Attività in aumento*): con beat e stato affidabili la rivelazione viene **tenuta
+  da parte**, cioè non usata come insert se ci sono alternative. La tensione resta sulle inquadrature strette.
 - **Drop**: taglio sulla rivelazione sul beat successivo, dal Master oppure da un insert che abbia superato
   la sua durata minima. Il cooldown non si applica, basta che la camera non sia stata in onda negli ultimi
   3 s e che il taglio non completi uno schema A-B-A-B. Altrimenti il drop sceglie un'altra camera. Poi la rivelazione esce come ogni insert: durata pianificata, tetto, ritorno al Master.

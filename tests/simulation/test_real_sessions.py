@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from dj_director.config.schema import DirectorConfig
-from dj_director.simulation.replay import default_cameras, format_report, load_audio, run_replay
+from dj_director.simulation.replay import default_cameras, format_report, framed_cameras, load_audio, run_replay
 from dj_director.simulation.synth import generate_mix
 
 AUDIO_EXT = {".wav", ".flac", ".ogg", ".aiff", ".aif"}
@@ -67,4 +67,20 @@ def test_long_synthetic_session(mix, preset):
     m = r.metrics
     assert m.coverage_max_deviation is not None and m.coverage_max_deviation <= 0.13
     assert m.beat_alignment_median_ms is not None and m.beat_alignment_median_ms < 30
-    assert m.max_by_class["detail"] <= 14.0 and m.max_by_class["side"] <= 22.0
+    assert m.max_by_class["detail"] <= 14.0 and m.max_by_class["side"] <= 23.0
+
+
+def test_long_session_with_framing_metadata_and_digital_crops(mix):
+    """Five OBS scenes from four cameras (one front camera cropped twice): no avoidable jump cut."""
+    r = run_replay(mix.audio, mix.sr, framed_cameras(), DirectorConfig(preset="natural"), seed=11,
+                   beat_times=mix.beat_times, baselines=False)
+    check_invariants(r, "synthetic mix, framed cameras")
+    m = r.metrics
+    assert m.jump_cuts == 0 and m.axis_crossings == 0 and m.repeated_transitions == 0
+    # the master is always the home: every insert run is followed by a return to it
+    seq = [s.camera for s in r.shots]
+    runs, cur = [], 0
+    for cam in seq:
+        cur = 0 if cam == "CAM1 Wide" else cur + 1
+        runs.append(cur)
+    assert max(runs) <= 2

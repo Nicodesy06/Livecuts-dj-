@@ -1,6 +1,6 @@
 # DJ Director AI — Guida all'utilizzo
 
-Versione 0.3.0 · Windows 10/11 (64 bit)
+Versione 0.4.0 · Windows 10/11 (64 bit)
 
 DJ Director AI è un regista automatico per i tuoi DJ set. Ascolta la musica che esce dal mixer, ne capisce
 l'andamento (tempo, beat, breakdown, drop) e cambia da solo le inquadrature in OBS Studio, come farebbe
@@ -111,16 +111,18 @@ basso a sinistra.
 
 | Ruolo | Che inquadratura è | Come la usa il regista |
 |---|---|---|
-| **MASTER** | L'inquadratura principale del DJ, frontale e abbastanza larga | È l'"ancora": la più usata (~70% del tempo), con riprese di solito da 20–50 s, senza un massimo rigido |
-| **DETAIL** | Mani, mixer, piatti, controller | Inserti brevi: 6–10 s, mai oltre 14 s (regolabile 12–15). Soprattutto durante i mix e i breakdown |
-| **SIDE** | Laterale sul DJ | Inserti medi: 10–18 s, mai oltre 22 s (regolabile 20–25) |
+| **MASTER** | L'inquadratura principale del DJ, frontale e abbastanza larga | È l'"ancora": la più usata (~70% del tempo), con riprese di solito da 30–50 s, senza un massimo rigido |
+| **DETAIL** | Mani, mixer, piatti, controller | Inserti brevi: 6–10 s, mai oltre 14 s (regolabile 12–15). Soprattutto durante i mix |
+| **OVERHEAD** | Dall'alto sulla consolle | Inserti 7–11 s, mai oltre 15 s, durante le transizioni |
+| **SIDE** | Laterale sul DJ | Inserti medi: 10–17 s, mai oltre 23 s (regolabile 20–25) |
 | **BEHIND** | Da dietro il DJ, verso la sala | Come SIDE, preferita sulle ripartenze |
-| **WIDE** | Campo largo, pubblico, sala | Come SIDE, preferita sui drop |
-| **OVERHEAD** | Dall'alto sulla consolle | Come DETAIL, durante le transizioni |
+| **WIDE** | Campo largo, sala | Come SIDE, preferita sui drop |
+| **CROWD** | Il pubblico | Inserti 6–12 s, la prima scelta sui drop |
 | **CUSTOM** | Qualsiasi altra | Uso neutro (conta come SIDE) |
 
 Il regista distribuisce il tempo con un **budget di copertura** su una finestra mobile di 5 minuti:
-**Master 70%**, **Detail 15%** (DETAIL + OVERHEAD), **Side 15%** (SIDE, BEHIND, WIDE, CUSTOM). È una quota
+**Master 70%** e inserti 30%: **Detail 15%** (DETAIL + OVERHEAD), **Side 15%** (SIDE, BEHIND, WIDE, CROWD,
+CUSTOM). È una quota
 *morbida*: orienta le scelte ma non provoca tagli per inseguire i numeri. La copertura attuale si vede in
 Dashboard.
 
@@ -144,6 +146,17 @@ oppure **"Non pronto: …"** in giallo, con l'elenco di cosa manca.
 | **Pausa / Riprendi** | Sospende la regia, che resta sull'inquadratura attuale |
 | **Stop** | Ferma la regia. OBS continua a registrare |
 | **Forza Master** | Torna subito sulla camera Master |
+
+**Diagnostica della regia** (riquadro sotto la mappa delle camere), pensata per un'occhiata durante il set:
+
+| Voce | Cosa dice |
+|---|---|
+| **In Program** | la scena davvero in onda in OBS, con il tipo di inquadratura |
+| **Sorgente** | *sana*, *non verificata* (nessuna analisi o dati vecchi) o *non valida* (con il motivo) |
+| **Ultimo taglio: perché** | il motivo dell'ultimo cambio e per quanto è previsto che duri |
+| **Prossimo taglio** | il taglio già programmato, tra quanti secondi e perché |
+| **Tempo reale in onda (5 min)** | la ripartizione del tempo **confermato** in onda per camera |
+| **Rifiutati / annullati** | l'ultimo taglio che non è avvenuto e perché (per esempio "sostituito da un taglio più recente" o un errore di OBS) |
 
 **Stato del regista** (etichetta colorata in alto a destra)
 
@@ -215,6 +228,23 @@ L'elenco delle scene di OBS. Per ciascuna: **Usa**, **Scena OBS**, **Ruolo**, **
 Lascia "predefinito" per usare i valori del ruolo. Premi **Salva mappa camere**. Le configurazioni create
 con le versioni precedenti (colonne *Media* e *Max*) vengono convertite automaticamente.
 Se rinomini una scena in OBS, DJ Director aggiorna il nome da solo.
+
+**Inquadrature (grammatica di ripresa)**, facoltativo, sotto la tabella. Per ogni scena puoi indicare:
+- **Scala**: campo largo, piano medio, primo piano, dettaglio stretto;
+- **Soggetto**: DJ, mani, attrezzatura, pubblico, sala;
+- **Angolazione**: da dove riprende rispetto alla consolle (frontale, sinistra, dietro, dall'alto…);
+- **Gruppo visivo**: inquadrature quasi uguali fra loro;
+- **Sorgente (camera)**: la camera fisica. Più scene ritagliate dalla stessa camera hanno la stessa sorgente;
+- **Direzione in scena** e **Crop ×** (fattore di zoom digitale della scena).
+
+Con queste informazioni il regista evita i **jump cut** (due inquadrature quasi uguali una dopo l'altra) e
+i salti fronte-retro senza un'inquadratura di raccordo. Tratta i crop della stessa camera come zoom, non
+come nuovi punti di vista. Se non sei sicuro lascia **sconosciuto**: nulla viene indovinato e il regista
+funziona anche senza.
+
+Sotto la tabella compaiono gli **avvisi pre-diretta** sui crop: zoom digitale troppo forte, crop senza
+camera fisica, due crop della stessa camera alla stessa scala. Gli stessi avvisi compaiono all'avvio della
+regia, senza bloccarla. Controlla i crop nell'anteprima della pagina **Visione** prima della serata.
 
 ### Audio
 
@@ -389,8 +419,8 @@ Valori tipici: da 40 a 150 ms.
 
   Mai a tempo fisso.
 - **Esce per durata.** Ogni inserto ha una lunghezza pianificata dentro la sua finestra (Detail 6–10 s,
-  Side 10–18 s), diversa ogni volta. Può allungarsi fino al limite della finestra se il momento lo
-  giustifica, ma **non supera mai il tetto** (14 s / 22 s). Su un drop torna presto al Master.
+  Side 10–17 s), diversa ogni volta. Può allungarsi fino al limite della finestra se il momento lo
+  giustifica, ma **non supera mai il tetto** (14 s / 23 s). Su un drop torna presto al Master.
 - **Novità, non presenza.** Le mani sempre appoggiate sul mixer non sono un motivo per restare sul
   dettaglio: conta solo un cambiamento rispetto a quello che la camera mostrava poco prima.
 - **Budget di copertura.** Tiene d'occhio le proporzioni degli ultimi 5 minuti (70/15/15) e corregge con
@@ -400,8 +430,10 @@ Valori tipici: da 40 a 150 ms.
 - **Niente ping-pong, niente casualità.** Non ripete subito lo stesso inserto. Le durate seguono una
   sequenza deterministica: con la stessa musica e lo stesso seed la regia è identica.
 - **Sente i tuoi gesti sul mixer**, senza MIDI, solo dall'audio:
-  - quando **togli i bassi** (EQ o isolatore), togli le alte o apri un **filtro**, passa alla **camera del
-    mixer** e la tiene per 15–20 secondi, finché il gesto dura;
+  - quando **togli i bassi** (EQ o isolatore), togli le alte o apri un **filtro**, la **camera del mixer**
+    diventa la scelta più probabile e viene tenuta finché il gesto dura, al massimo 14 secondi (il limite si
+    alza da *Avanzate*). Il solo audio non basta a interrompere un Master appena iniziato: se l'occhio
+    veloce vede le mani muoversi sul mixer il gesto conta di più, se le vede ferme conta meno;
   - quando **il basso rientra**, apre la camera laterale, dietro o wide, sul beat.
 
   Il regista distingue il tuo gesto dalla traccia che si svuota da sola: con l'EQ sparisce solo una
@@ -410,6 +442,13 @@ Valori tipici: da 40 a 150 ms.
 - **Guarda le camere.** Non manda in onda un'inquadratura nera, ferma, sfocata o coperta, e ne esce
   subito se lo diventa. Sul drop apre l'inquadratura più ampia, dopo averla tenuta da parte durante il
   build-up.
+- **Monta come un regista**, se gli descrivi le inquadrature (pagina Camere): evita jump cut e salti
+  d'asse, preferisce cambi netti di scala, angolazione o soggetto.
+- **Segue il momento**: nel breakdown taglia meno e preferisce atmosfera e performer; sul drop preferisce
+  pubblico e campi larghi, mai un dettaglio, e non taglia mai in ritardo.
+- **Si fida solo di ciò che OBS conferma**: ogni cambio ha uno stato (richiesto, confermato, fallito,
+  annullato), e il tempo in onda è quello reale. Se cambi scena a mano mentre OBS è scollegato, alla
+  riconnessione la tua scelta viene rispettata.
 - **Ricontrolla prima di tagliare.** Un cambio in attesa viene annullato se la camera sparisce, se arriva
   un intervento manuale o se il momento non è più adatto.
 - **Rispetta dei limiti**: durata minima, distanza minima tra tagli, numero massimo di tagli al minuto.
@@ -469,6 +508,10 @@ predefiniti, senza bloccarsi.
   solo per la camera del drop e non con la frequenza *Bassa*.
 - L'occhio lento (modello AI) è stato verificato nel codice e con server di prova, non ancora su serate
   reali: valuta i suoi giudizi in modalità Shadow.
+- La qualità della regia va giudicata **guardando registrazioni reali**: le simulazioni verificano le
+  regole (niente jump cut, durate, ritorno al Master), non l'estetica.
+- Il riconoscimento del movimento della camera e del mixer coperto si basa su misure semplici dell'immagine:
+  movimenti lenti o parziali possono sfuggire, e una camera a mano viene vista come "in movimento".
 - Gesti sul mixer: se è la traccia stessa a togliere solo cassa e basso lasciando tutto il resto identico,
   all'ascolto è indistinguibile da un tuo taglio dell'EQ, e il regista lo tratta come un gesto. Durante un
   passaggio, se togli il basso a una traccia mentre l'altra ha ancora il suo, le basse complessive non

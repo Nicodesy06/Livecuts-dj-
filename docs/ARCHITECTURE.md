@@ -1,4 +1,4 @@
-# Architettura (v0.2)
+# Architettura (v0.4)
 
 ```
  Audio device / file
@@ -10,7 +10,8 @@
  FeatureExtractor → BeatTracker → MusicStateEstimator  ⇒  MusicSnapshot + MusicEvent
         │
         ▼  thread "director" (20 Hz) — unico thread che modifica l'engine
- DirectorEngine: Entry (sul Master) | Exit (sulla secondaria) + budget di copertura + timing ⇒  DirectorDecisionEvent
+ DirectorEngine: WHY (Entry sul Master | Exit sulla secondaria) → ShotPlanner: WHAT (punteggio + continuità +
+                 grammatica + qualità) · WHEN (beat / frase) · HOW LONG  ⇒  DirectorDecisionEvent (+ plan)
         │ SWITCH
         ▼  coda a slot singolo, thread "obs-commands"
  ObsController → ObsClient (obs-websocket 5.x) → SetCurrentProgramScene
@@ -35,11 +36,13 @@
 |---|---|
 | `core/events.py` | Contratti tipizzati e immutabili tra componenti: `AudioStatusEvent`, `MusicSnapshot`, `BeatInfo`, `MusicEvent`, `DirectorDecisionEvent`, `SceneSwitchRequested/Confirmed/Failed`, `ObsStatusEvent`, `ExternalSceneChange` |
 | `core/clock.py` | Clock monotono (live) e `SimClock` (replay deterministico) |
+| `core/switching.py` | Ciclo di vita dei cambi (REQUESTED / CONFIRMED / FAILED / CANCELLED, conferme tardive, scadenze) e tempo realmente in onda (AirtimeLedger) |
 | `core/controller.py` | Application Controller: cablaggio, thread del director, stati OFF/ARMED/LIVE/SHADOW/PAUSED/ERROR, comandi utente, log delle decisioni |
 | `config/` | Schema con validazione e clamp, preset, salvataggio atomico, recupero da file corrotto, password via DPAPI, percorsi per utente |
 | `audio/` | Ring buffer, backend (PortAudio, WASAPI loopback con riempimento del silenzio, file), manager con watchdog e riapertura per nome, riconoscimento dei dispositivi (UCA222 & co.), rilevamento automatico della sorgente |
 | `music/` | Feature spettrali, beat tracker causale, stati musicali, pipeline pura e worker live |
-| `director/` | Camera registry (ruoli, disponibilità, ancora), Director Engine, calibrazione dell'offset |
+| `director/` | Camera registry (ruoli, metadati, disponibilità, ancora), Director Engine, `shot_planner` (WHAT / HOW LONG / piano spiegato), `continuity` (jump cut, asse, crop come scala, ripetizioni), calibrazione dell'offset |
+| `config/framing.py` | Controlli pre-diretta su metadati e crop digitali |
 | `obs/` | Protocollo, client WebSocket con allow-list, controller (supervisione, eventi, comandi), finto server per test e demo |
 | `simulation/` | Generatore sintetico con ground truth, replay offline, metriche editoriali, baseline timer e casuale |
 | `visual/` | Visione (v0.2): `frames` (istantanee da OBS), `fast` (occhio veloce: qualità, movimento, battito), `judge` + `providers` (occhio lento: Ollama locale o API Claude), `imaging` (codec e mosaico con Qt), `vision` (servizio che li unisce per l'engine) |

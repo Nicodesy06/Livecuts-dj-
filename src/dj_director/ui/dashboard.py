@@ -118,8 +118,6 @@ class DashboardPage(QWidget):
         c.lay.addWidget(self.cur_detail)
         self.coverage = label("", "Faint", wrap=True)
         c.lay.addWidget(self.coverage)
-        self.last_reason = label("", "Faint", wrap=True)
-        c.lay.addWidget(self.last_reason)
         self.dir_msg = label("", "Faint", wrap=True)
         c.lay.addWidget(self.dir_msg)
         c.lay.addStretch()
@@ -336,10 +334,6 @@ class DashboardPage(QWidget):
         if vis:
             self.coverage.setText(self.coverage.text() + ("\n" if self.coverage.text() else "") + " · ".join(vis))
         self._refresh_diagnostics(s)
-        if s.last_switch:
-            self.last_reason.setText(tr("Last cut → {0}: {1}").format(s.last_switch.candidate_camera, tr_reason(s.last_switch.reason)))
-        else:
-            self.last_reason.setText("")
         msg = tr_reason(s.director_message)
         if s.last_decision and s.director in (DirectorStatus.LIVE, DirectorStatus.SHADOW):
             msg = tr_decision(s.last_decision)

@@ -20,7 +20,10 @@ Risultato dell'ultima esecuzione (v0.3.0): **187 test superati, 1 saltato** (`te
 | Protocollo OBS | `unit/test_obs_protocol.py` | formula di autenticazione, allow-list (CreateScene, StartRecord, … rifiutati) |
 | Audio e analisi | `unit/test_audio_analysis.py` | silenzio, segnale debole, rumore, onset irregolari, BPM 124/128/140/172, half/double-time con prior, stabilità del BPM, cambio di tempo, fase del beat, breakdown senza beat, dropout, clipping e segnale tramite backend file, dispositivo mancante |
 | Stati musicali | `unit/test_music_state.py` | breakdown e drop rilevati, **aumento di volume ≠ drop**, rarità degli eventi di transizione, groove stabile, confidenze |
-| Director | `unit/test_engine.py` | 59 test. **Nuovi in v0.3**: gesto del DJ → camera del mixer sul beat; inquadratura del mixer tenuta 15–20 s mentre il gesto dura e mai oltre il suo tetto; rientro del basso → rivelazione; uscita poco dopo che il DJ molla; gesto durante un altro insert; camera del mixer scelta dall'utente; gesti spenti. **Nuovi in v0.2**: il drop apre la camera di rivelazione sul beat (dal Master e da un insert), scena scelta dall'utente, suggerimento dell'occhio lento solo se non c'è una scelta esplicita, rivelazione tenuta da parte nel build-up, camera con veto mai scelta, uscita entro 1.5 s da un'inquadratura che diventa inutilizzabile, Master inutilizzabile evitato finché non torna buono. Riguardano anche: <ul><li>master iniziale, durata minima, HOLD con motivo, niente timer fisso, niente A-B-A-B, cooldown, camere disabilitate, camera singola, scena sparita;</li><li>sync al beat e beat incerto (niente falsa precisione), timing di frase, preset, tetti dei tagli, determinismo, override manuale, perdita del segnale, cambio fallito, motivi coerenti;</li><li>**nuovi in v0.1.3**: ingresso e uscita separati; durate preferite Detail/Side; hard cap mai superato, nemmeno con un cambio in attesa; Master senza massimo rigido; presenza continua delle mani che non provoca tagli e non allunga un Detail; novità visiva che fa entrare; refrattario; continuità limitata a `pref_max`; budget di copertura in finestra mobile; tagli editoriali con musica stabile; nessuna durata ripetuta di fila; rivalidazione (target non più adatto, copertura raggiunta); chaining solo con Master oltre budget; tetto configurabile riportato in 12–15 / 20–25.</li></ul> |
+| Director | `unit/test_engine.py` | 59 test. **Nuovi in v0.3**: gesto del DJ → camera del mixer sul beat; inquadratura del mixer tenuta mentre il gesto dura e mai oltre il suo tetto (14 s di default dalla 0.4); rientro del basso → rivelazione; uscita poco dopo che il DJ molla; gesto durante un altro insert; camera del mixer scelta dall'utente; gesti spenti. **Nuovi in v0.2**: il drop apre la camera di rivelazione sul beat (dal Master e da un insert), scena scelta dall'utente, suggerimento dell'occhio lento solo se non c'è una scelta esplicita, rivelazione tenuta da parte nel build-up, camera con veto mai scelta, uscita entro 1.5 s da un'inquadratura che diventa inutilizzabile, Master inutilizzabile evitato finché non torna buono. Riguardano anche: <ul><li>master iniziale, durata minima, HOLD con motivo, niente timer fisso, niente A-B-A-B, cooldown, camere disabilitate, camera singola, scena sparita;</li><li>sync al beat e beat incerto (niente falsa precisione), timing di frase, preset, tetti dei tagli, determinismo, override manuale, perdita del segnale, cambio fallito, motivi coerenti;</li><li>**nuovi in v0.1.3**: ingresso e uscita separati; durate preferite Detail/Side; hard cap mai superato, nemmeno con un cambio in attesa; Master senza massimo rigido; presenza continua delle mani che non provoca tagli e non allunga un Detail; novità visiva che fa entrare; refrattario; continuità limitata a `pref_max`; budget di copertura in finestra mobile; tagli editoriali con musica stabile; nessuna durata ripetuta di fila; rivalidazione (target non più adatto, copertura raggiunta); chaining solo con Master oltre budget; tetto configurabile riportato in 12–15 / 20–25.</li></ul> |
+| Stato dei cambi (0.4) | `unit/test_switching.py`, `integration/test_obs_controller.py`, `integration/test_app_controller.py` | REQUESTED → CONFIRMED / FAILED / CANCELLED; comando in coda sostituito e annullato; conferma tardiva dopo timeout; evento perso riconciliato dal poll del Program; cambio manuale durante la disconnessione rispettato alla riconnessione; tempo in onda solo confermato (un cambio fallito non conta, Shadow non conta) |
+| Continuità, Shot Planner e crop (0.4) | `unit/test_continuity.py` | metadati sconosciuti neutri; stesso gruppo visivo; crop della stessa camera come scala; angolo e scala simili; asse fronte-retro con raccordo ed eccezione editoriale; direzione in scena; transizione ripetuta; roundtrip e vecchie configurazioni; il planner evita i jump cut quando c'è un'alternativa (controprova: il motore 0.3 li fa) e li fa se è l'unica opzione; piano perché/cosa/quando/per quanto su ogni taglio; riproducibilità; 1–3 camere senza metadati; avvisi sui crop (stessa scala, scala mancante, crop senza camera fisica, zoom eccessivo, dettaglio ritagliato) |
+| Grammatica contestuale (0.4) | `unit/test_grammar.py`, `unit/test_vision.py` | groove stabile con Master dominante; breakdown con meno tagli e inquadrature d'atmosfera; drop su pubblico/campi larghi, mai su un dettaglio e mai oltre mezzo beat in ritardo; rivelazione tenuta solo con beat affidabile; musica incerta; mani continue che non allungano un Detail; gesto audio pesato dalla conferma visiva; qualità HEALTHY / UNKNOWN / FAILED, camera in movimento, mixer non visibile, luci da club |
 | OBS (integrazione) | `integration/test_obs_controller.py` | connessione, password errata (nessun tentativo ripetuto), OBS irraggiungibile senza blocchi, timeout, cambio riuscito via UUID, cambio fallito, scena sconosciuta, cambio esterno, rinomina/rimozione, Studio Mode (Preview intatta), riconnessione dopo riavvio, spegnimento di OBS |
 | App end-to-end (real-time) | `integration/test_app_controller.py` | LIVE comanda OBS, **Shadow non invia mai comandi**, Stop ferma subito, override rispettato e poi ripresa, scena non gestita, disconnessione → ARMED → LIVE, rinomina persistita, Force Master |
 | Sorgenti audio | `unit/test_audio_sources.py` | riconoscimento UCA222 / interfacce / microfoni ambientali, suggerimento, deduplica host API, attività musica vs ronzio, classifica del rilevamento automatico, zeri digitali (privacy microfono), riempimento del silenzio nel loopback |
@@ -31,12 +34,33 @@ Risultato dell'ultima esecuzione (v0.3.0): **187 test superati, 1 saltato** (`te
 | Gesti del DJ (audio) | `unit/test_mixing.py` | mixer virtuale sul set sintetico: groove senza gesti → nessun evento; **kill delle basse** riconosciuto entro ~0.7 s e **rientro** entro 1 s, gesto seguito per tutta la durata; kill delle alte, filtro passa-basso e passa-alto; **un set con breakdown naturali non produce nessun gesto**; replay completo: camera del mixer sul kill, poi rivelazione sulla camera Behind al rientro del basso, senza violazioni |
 | Visione (unit) | `unit/test_vision.py` | occhio veloce: veto nera solo se persiste, strobo ignorato, immagine bloccata, sfocatura relativa alla camera, movimento solo nella zona di interesse, nessun veto senza dati, movimento e luci a tempo riconosciuti (e non a un altro tempo); mosaico numerato; validazione del giudizio AI (numeri di camera fuori elenco, interesse limitato, drop su camera non utilizzabile scartato); scadenza del giudizio; errori del modello senza crash; Ollama con un server HTTP di prova (versione, modelli installati, download con avanzamento, risposta JSON, riprova senza "think", modello mancante, Ollama assente); forma della richiesta all'API Claude (immagine, schema JSON, fallback, rifiuto); servizio che unisce occhio veloce e lento; sonda MIDI |
 | Visione (integrazione) | `integration/test_vision_obs.py`, `integration/test_gui.py` | istantanee vere via obs-websocket dall'OBS simulato, 60% alla camera del drop, solo `GetSourceScreenshot` su quella connessione, stop con password errata; **app completa: una camera nera non va mai in onda** (controprova: senza il nero la stessa camera va in onda 2 volte su 8); pagina Visione con immagine live, stato "nera", zona del mixer disegnata col mouse e salvata |
-| Sessioni lunghe e reali | `simulation/test_real_sessions.py` | set sintetico mixato da 12.8 min per ogni preset (copertura Master nella banda, deviazione ≤ 13 punti, tetti rispettati, tagli sul beat). Replay delle **registrazioni reali** in `tests/sessions/` o `DJD_SESSIONS_DIR`: test saltato se non ce ne sono |
+| Sessioni lunghe e reali | `simulation/test_real_sessions.py` | set sintetico mixato da 12.8 min per ogni preset, e con 5 scene inquadrate (nessun jump cut) (copertura Master nella banda, deviazione ≤ 13 punti, tetti rispettati, tagli sul beat). Replay delle **registrazioni reali** in `tests/sessions/` o `DJD_SESSIONS_DIR`: test saltato se non ce ne sono |
 
 I test OBS usano `obs/fake_server.py`, un server obs-websocket 5 finto ma fedele al protocollo
 (Hello/Identify con autenticazione, close code 4009, eventi), **non OBS reale**.
 
 ## Risultati misurati
+
+### Prima / dopo: v0.3.0 contro v0.4.0 (`scripts/compare_engines.py`)
+
+Lo script esegue il **codice reale** della release precedente in un worktree git e quello attuale sullo
+stesso audio (set sintetico mixato da 12.8 minuti), con le stesse camere, preset Natural, seed 11. Le
+metriche sono calcolate per entrambi dal codice attuale.
+
+| Metrica | Camere inquadrate, 0.3.0 | Camere inquadrate, 0.4.0 | Camere di default, 0.3.0 | Camere di default, 0.4.0 |
+|---|---|---|---|---|
+| Jump cut | 6 | **0** | 0 | 0 |
+| Tagli al minuto | 3,19 | 2,73 | 3,19 | 2,65 |
+| Quota Master | 0,709 | 0,74 | 0,709 | 0,758 |
+| Quota Detail | 0,11 | 0,096 | 0,11 | 0,079 |
+| Violazioni (durata minima, tetti, cooldown, A-B-A-B) | 0 | 0 | 0 | 0 |
+
+"Camere inquadrate" sono 5 scene da 4 camere fisiche, con metadati: CAM1 Wide (master) e CAM1 Medium
+(crop della stessa camera), CAM2 mani dall'alto, CAM3 laterale sinistra, CAM4 pubblico da dietro. La 0.3.0
+taglia 6 volte tra il Wide e il suo crop Medium: sono jump cut. La 0.4.0 non lo fa mai.
+
+Il Detail sotto il 15% indica che il budget del Detail è ancora poco usato con questo materiale. Questi
+numeri misurano regole e ritmo, non l'estetica: va giudicata su registrazioni reali.
 
 ### Analisi (set sintetico con ground truth, `simulation/synth.py`)
 
@@ -139,3 +163,10 @@ su registrazioni reali.
 14. [ ] **Gesti del DJ con un mixer vero** (0.3), XDJ-RX3 → UCA222: kill delle basse con EQ e con
         isolatore, filtro Color FX in entrambe le direzioni, bass swap durante un passaggio, breakdown di
         tracce reali (controllare che non vengano scambiati per gesti), in Shadow con il log delle decisioni.
+15. [ ] **Regia 0.4 su registrazioni reali**: compilare i metadati delle inquadrature, registrare un set
+        in Shadow e rivedere il log (piano di ogni taglio, jump cut, salti d'asse). Lanciare
+        `python scripts/compare_engines.py set.wav` sullo stesso audio e confrontare guardando il video.
+16. [ ] **Crop digitali in OBS reale**: due scene dalla stessa camera con crop diversi, avvisi nella pagina
+        Camere, qualità dell'immagine ritagliata a 1080p.
+17. [ ] **Stato dei cambi con OBS reale**: Studio Mode con transizioni lunghe, cambio manuale durante una
+        disconnessione, poll del Program sotto carico di registrazione.

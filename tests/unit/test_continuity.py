@@ -159,3 +159,21 @@ def test_works_with_one_two_three_cameras_without_any_metadata():
             assert len(switches(ds)) == 1
         else:
             assert len(switches(ds)) > 4
+
+
+# ----------------------------------------------------------------------------- digital crops (P4)
+def test_crop_validation_warnings():
+    from dj_director.config.framing import framing_warnings
+    good = [CameraConfig("CAM1 W", shot_size=S.WIDE, source_group="cam1"),
+            CameraConfig("CAM1 C", shot_size=S.CLOSE, source_group="cam1", crop_zoom=1.8)]
+    assert framing_warnings(good) == []
+    bad = [CameraConfig("A", shot_size=S.WIDE, source_group="cam1"),
+           CameraConfig("B", shot_size=S.WIDE, source_group="cam1", crop_zoom=1.5),
+           CameraConfig("C", source_group="cam1", crop_zoom=1.2),
+           CameraConfig("Z", crop_zoom=3.0),
+           CameraConfig("H", role=CameraRole.DETAIL, crop_zoom=1.4, source_group="cam2"),
+           CameraConfig("off", crop_zoom=5.0, enabled=False)]
+    w = " | ".join(framing_warnings(bad))
+    assert "same scale (WIDE)" in w and "set the scale of every crop" in w
+    assert "Z: digital crop without a physical camera" in w and "Z: digital zoom x3.0" in w
+    assert "H: cropped detail" in w and "off" not in w
