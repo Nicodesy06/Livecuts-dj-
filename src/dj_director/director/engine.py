@@ -74,6 +74,7 @@ from dj_director.core.events import (DirectorAction, DirectorDecisionEvent, Musi
 from dj_director.director.cameras import Camera, CameraRegistry
 from dj_director.director.continuity import assess
 from dj_director.director.shot_planner import ShotPlanner
+from dj_director.visual.interface import EditorHint
 
 S = MusicState
 R = CameraRole
@@ -216,7 +217,8 @@ class DirectorEngine:
                  visual_activity: Callable[[Camera], Optional[float]] | None = None,
                  visual_issue: Callable[[Camera], str] | None = None,
                  reveal_hint: Callable[[], Optional[str]] | None = None,
-                 visual_quality: Callable[[Camera], str] | None = None) -> None:
+                 visual_quality: Callable[[Camera], str] | None = None,
+                 editor_hint: Callable[[], Optional[EditorHint]] | None = None) -> None:
         self.reg = registry
         self.p = params
         self.s = settings or EngineSettings()
@@ -227,6 +229,7 @@ class DirectorEngine:
         self.visual_issue = visual_issue or (lambda cam: "")
         self.reveal_hint = reveal_hint or (lambda: None)
         self.visual_quality = visual_quality or (lambda cam: "UNKNOWN")
+        self.editor_hint = editor_hint or (lambda: None)
         self.planner = ShotPlanner(self)
         self._last_snap: Optional[MusicSnapshot] = None
         self._ranked: list = []
@@ -548,6 +551,10 @@ class DirectorEngine:
                 editorial *= 0.8
             if state == MusicState.SPARSE and self.p.contextual_grammar:
                 editorial *= 0.7                    # breakdown: let it breathe, fewer unmotivated cuts
+            hint = self.ai_hint()
+            if hint is not None and hint.hold == cur.name and tos < sp.pref_max:
+                # the slow eye sees a moment on the master: the editorial cut waits (music still cuts)
+                editorial *= max(0.0, 1.0 - 0.5 * min(hint.weight, 1.0))
         early = tos < sp.pref_min
         burst = max(trig, vis)
         # Between the master minimum and its preferred dwell only a strong musical or
@@ -615,6 +622,9 @@ class DirectorEngine:
         reasons = [source, f"{bcls} coverage {cov.get(bcls, 0) * 100:.0f}%/{targets.get(bcls, 0) * 100:.0f}%"]
         if parts.get("musical", 0) >= 0.3:
             reasons.append(f"{best.role.value.lower()} suits {state.label.lower()}")
+        if parts.get("ai", 0) > 0:
+            hint = self.ai_hint()
+            reasons.append("AI suggests it" + (f": {hint.reason}" if hint is not None and hint.reason else ""))
         if best.cooldown > 0:
             reasons.append("cooldown passed")
         confidence = min(1.0, 0.3 + 0.5 * opportunity / max(self.p.cut_threshold, 1e-6))
@@ -728,6 +738,14 @@ class DirectorEngine:
         return self._commit(now, target.name, "; ".join(reasons), 0.8, 1.0, state, timing, target_t, (),
                             kind="exit", trigger="planned", deadline=deadline)
 
+    def ai_hint(self) -> Optional[EditorHint]:
+        """The slow eye's editorial advice, or None (no AI, stale verdict, failing provider)."""
+        try:
+            h = self.editor_hint()
+        except Exception:
+            return None
+        return h if h is not None and h.weight > 0 else None
+
     def _home(self, now: float, cur: Camera, state: MusicState, anchor: Camera) -> Camera:
         """The anchor, unless its picture is unusable: then the best other usable insert."""
         if not self.veto(anchor):
@@ -744,6 +762,9 @@ class DirectorEngine:
         nov = self._novelty.get(cur.name)
         if nov is not None and nov.novelty >= self.p.visual_novelty_threshold:
             return "visual novelty"
+        hint = self.ai_hint()
+        if hint is not None and hint.hold == cur.name:
+            return "AI: " + (hint.reason or "moment on this shot")
         if (state in CONTINUITY_STATES and MUSICAL_FIT.get(cur.role, {}).get(state, 0.0) >= 0.3
                 and snap is not None and snap.state_since >= self.shot_start - 1.0):
             return state.label.lower()

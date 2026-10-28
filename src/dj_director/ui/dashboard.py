@@ -329,8 +329,13 @@ class DashboardPage(QWidget):
             vis.append(tr("vision: {0}/{1} cameras seen").format(seen, len(s.vision.cameras)))
             if bad:
                 vis.append(tr("avoided: {0}").format(", ".join(bad)))
-            if s.vision.judge is not None and s.vision.judge.note:
-                vis.append(tr("AI: {0}").format(s.vision.judge.note))
+            j = s.vision.judge
+            if j is not None and j.hold:
+                vis.append(tr("AI: stay on {0}").format(j.hold) + (f" ({j.reason})" if j.reason else ""))
+            elif j is not None and j.next_pick:
+                vis.append(tr("AI: next {0}").format(j.next_pick) + (f" ({j.reason})" if j.reason else ""))
+            elif j is not None and j.note:
+                vis.append(tr("AI: {0}").format(j.note))
         if vis:
             self.coverage.setText(self.coverage.text() + ("\n" if self.coverage.text() else "") + " · ".join(vis))
         self._refresh_diagnostics(s)

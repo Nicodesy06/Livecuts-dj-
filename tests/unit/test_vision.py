@@ -13,7 +13,7 @@ from dj_director.config.schema import AppConfig, CameraConfig, CameraRole
 from dj_director.sensors.midi_probe import ProbeResult, describe, probe
 from dj_director.visual import imaging
 from dj_director.visual.fast import FastVisualAnalyzer
-from dj_director.visual.judge import JudgeResult, SceneJudge, Tile, build_prompt, parse_result
+from dj_director.visual.judge import CameraJudgement, JudgeResult, SceneJudge, Tile, build_prompt, parse_result
 from dj_director.visual.providers import JUDGE_SCHEMA, ClaudeProvider, OllamaProvider, ProviderError
 from dj_director.visual.vision import VisionService
 
@@ -315,8 +315,8 @@ def test_service_combines_fast_veto_and_slow_verdict():
     assert vs.issue("D") == "black frame" and vs.score("D") == -1.0
     assert vs.score("M") is None                      # no information at all
     j = SceneJudge(FakeProvider(), lambda: [], lambda: {})
-    j.result = JudgeResult(t, {"M": SimpleNamespace(usable=True, interest=0.9, issue="", what=""),
-                               "D": SimpleNamespace(usable=False, interest=0.0, issue="ceiling", what="")},
+    j.result = JudgeResult(t, {"M": CameraJudgement(True, 0.9, "", ""),
+                               "D": CameraJudgement(False, 0.0, "ceiling", "")},
                            "M", "note")
     vs.judge = j
     assert vs.score("M") == pytest.approx(0.6 * 0.5)

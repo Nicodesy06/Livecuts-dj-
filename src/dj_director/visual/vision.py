@@ -8,6 +8,7 @@ eye's pick for the drop). Owns its threads; every query is non-blocking.
             otherwise a small bias: slow-eye interest and movement on the beat.
 * activity  movement (in the region of interest when set) for novelty triggers.
 * issue     "" or the reason the camera is vetoed.
+* editor_hint  the slow eye's advice as an editor: next shot or stay on air (0.5).
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from typing import Callable, Optional
 from dj_director.config.schema import AppConfig, VisionConfig
 from dj_director.visual.fast import CameraVisionStatus, FastVisualAnalyzer
 from dj_director.visual.frames import FrameGrabber
+from dj_director.visual.interface import EditorHint
 from dj_director.visual.imaging import warm_up
 from dj_director.visual.judge import JudgeResult, SceneJudge, Tile
 from dj_director.visual.providers import ClaudeProvider, OllamaProvider, ProviderError
@@ -27,7 +29,20 @@ from dj_director.visual.providers import ClaudeProvider, OllamaProvider, Provide
 log = logging.getLogger(__name__)
 
 INTEREST_GAIN = 0.6          # slow-eye interest 0..1 -> score bias of about -0.24..+0.36
+COMPOSITION_GAIN = 0.3       # slow-eye framing quality 0..1 -> about -0.18..+0.12
+MOMENT_BONUS = 0.1           # the AI sees a moment worth showing in the shot
 COHERENCE_GAIN = 0.25        # movement pulsing with the beat
+
+
+def framing_text(cam) -> str:
+    """Short description of a camera's framing metadata for the slow eye ("" when unknown)."""
+    bits = []
+    for v in (cam.shot_size, cam.subject, cam.view_angle):
+        if v.value != "UNKNOWN":
+            bits.append(v.value.lower().replace("_", " "))
+    if cam.source_group:
+        bits.append(f"camera {cam.source_group}" + (f", crop x{cam.crop_zoom:.1f}" if cam.crop_zoom > 1 else ""))
+    return ", ".join(bits)
 
 
 @dataclass(frozen=True)
@@ -123,7 +138,10 @@ class VisionService:
     # ------------------------------------------------------------------ slow-eye inputs
     def _tiles(self) -> list[Tile]:
         now = self.clock()
-        return [Tile(name, role, self.fast.latest_rgb(name, now)) for name, role in self.cameras()]
+        framing = {c.scene_name: framing_text(c) for c in self.cfg.cameras}
+        return [Tile(name, role, self.fast.latest_rgb(name, now), framing.get(name, ""),
+                     self.fast.activity(name, now), self.fast.coherence(name, now))
+                for name, role in self.cameras()]
 
     def _judgement(self, name: str, now: float):
         r = self.judge.latest(now) if self.judge is not None else None
@@ -140,7 +158,9 @@ class VisionService:
             return None
         val = COHERENCE_GAIN * coh
         if j is not None:
-            val += INTEREST_GAIN * (j.interest - 0.4)
+            val += INTEREST_GAIN * (j.interest - 0.4) + COMPOSITION_GAIN * (j.composition - 0.6)
+            if j.moment != "none":
+                val += MOMENT_BONUS
         return val
 
     def available(self, camera_name: str) -> bool:
@@ -170,6 +190,18 @@ class VisionService:
     def reveal_hint(self) -> Optional[str]:
         r = self.judge.latest(self.clock()) if self.judge is not None else None
         return r.drop_pick if r is not None else None
+
+    def editor_hint(self) -> Optional[EditorHint]:
+        """The slow eye's editorial advice (fresh verdict only), weighted by the user's setting."""
+        w = self.vcfg.ai_influence
+        r = self.judge.latest(self.clock()) if self.judge is not None else None
+        if r is None or w <= 0 or (r.next_pick is None and r.hold is None):
+            return None
+        nxt = r.next_pick if r.next_pick is not None and not self.issue(r.next_pick) else None
+        hold = r.hold if r.hold is not None and not self.issue(r.hold) else None
+        if nxt is None and hold is None:
+            return None
+        return EditorHint(nxt, hold, r.reason, w)
 
     # ------------------------------------------------------------------ UI
     def status(self) -> VisionStatus:

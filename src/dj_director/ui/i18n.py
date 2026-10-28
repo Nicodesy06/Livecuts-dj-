@@ -149,6 +149,10 @@ _REASONS_IT: list[tuple[str, object]] = [
     (r"insert (\d+)s of ~(\d+)s planned \(preferred (\d+)-(\d+)s\)",
      r"inserto da \1 s su ~\2 s previsti (preferiti \3-\4 s)"),
     (r"continuity: visual novelty", "continuità: novità visiva"),
+    (r"continuity: AI: moment on this shot", "continuità: l'AI vede un momento da tenere"),
+    (r"continuity: AI: (.+)", r"continuità: AI: \1"),
+    (r"AI suggests it", "suggerita dall'AI"),
+    (r"AI suggests it: (.+)", r"suggerita dall'AI: \1"),
     (r"continuity: (.+)", lambda m: f"continuità: {_STATE_LOWER_IT.get(m.group(1), m.group(1))}"),
     (r"exit: planned length reached \((\d+)s, preferred (\d+)-(\d+)s\)",
      r"uscita: durata prevista raggiunta (\1 s, preferiti \2-\3 s)"),
@@ -725,4 +729,61 @@ IT: dict[str, str] = {
     "Last cut: why": "Ultimo taglio: perché", "Next cut": "Prossimo taglio",
     "Real airtime (5 min)": "Tempo reale in onda (5 min)", "Refused / cancelled": "Rifiutati / annullati",
     "healthy": "sana", "not verified": "non verificata", "failed": "non valida", "in {0:.1f} s": "tra {0:.1f} s",
+    "AI: stay on {0}": "AI: resta su {0}", "AI: next {0}": "AI: poi {0}",
+    "Editor advice": "Consigli da regista", "off (only its vetoes)": "spenti (solo i veti)", "light": "leggeri",
+    "normal": "normali", "strong": "forti",
+    "Keep two stills per cut for the post-set review": "Salva due immagini per taglio per la revisione post-serata",
+    "The AI watches the edit as a director: it suggests the next shot or to stay on the one on air. Its advice is "
+    "one argument among others, never a rule.":
+        "L'AI guarda il montaggio da regista: suggerisce la prossima inquadratura o di restare su quella in onda. "
+        "Il suo consiglio è un argomento tra gli altri, mai una regola.",
+    "Review a set…": "Revisione di una serata…",
+    "Post-set review: the AI editor (slow eye's model) judges every cut from the stills saved during the set, and "
+    "the report suggests what to adjust.":
+        "Revisione post-serata: l'AI (il modello dell'occhio lento) giudica ogni taglio dalle immagini salvate "
+        "durante il set, e il report suggerisce cosa regolare.",
+    "reviewing… {0:.0f}%": "revisione… {0:.0f}%", "Session to review": "Serata da rivedere",
+    "AI not available ({0}): numbers and rules only": "AI non disponibile ({0}): solo numeri e regole",
+    "Review failed: {0}": "Revisione non riuscita: {0}",
+    "{0} cuts, {1} judged by the AI": "{0} tagli, {1} giudicati dall'AI",
+    "AI critique stopped: {0}": "Critica dell'AI interrotta: {0}",
+    # ---- post-set review report (review/critic.py)
+    "Set review": "Revisione della serata", "critique by {0}": "critica di {0}", "no AI critique": "senza critica AI",
+    "Duration": "Durata", "Cuts": "Tagli", "Median shot": "Inquadratura mediana",
+    "good": "buono", "acceptable": "accettabile", "weak": "debole", "bad": "da evitare",
+    "What to look at": "Cosa guardare", "Time on air per camera": "Tempo in onda per camera",
+    "Notes of the editor": "Note del regista", "Before": "Prima", "After": "Dopo",
+    "Verdict": "Giudizio", "manual change": "cambio manuale",
+    "jump cut": "jump cut", "front-back jump": "salto fronte-retro", "previous shot too short": "inquadratura precedente troppo breve",
+    "previous shot too long": "inquadratura precedente troppo lunga", "dull new shot": "nuova inquadratura povera",
+    "poor framing": "inquadratura fatta male", "against the music": "contro la musica", "repetitive": "ripetitivo",
+    "very short previous shot": "inquadratura precedente brevissima", "A-B-A-B": "A-B-A-B",
+    "jump cut (framing metadata)": "jump cut (metadati delle inquadrature)",
+    "front-back jump (framing metadata)": "salto fronte-retro (metadati delle inquadrature)",
+    "The critique sees two stills per cut and the logged music state: check it against the recording before "
+    "changing settings.":
+        "La critica vede due immagini per taglio e lo stato musicale registrato: confrontala con la registrazione "
+        "prima di cambiare le impostazioni.",
+    "Cuts between near-identical shots: set shot size and angle of every camera (Cameras page) and give crops of "
+    "the same camera different scales.":
+        "Tagli tra inquadrature quasi uguali: indica scala e angolazione di ogni camera (pagina Camere) e dai scale "
+        "diverse ai crop della stessa camera.",
+    "Front-back jumps: set the angle of the cameras, so the director passes through a wide or overhead shot.":
+        "Salti fronte-retro: indica l'angolazione delle camere, così la regia passa da un campo largo o dall'alto.",
+    "Shots end before they can be read: raise the preferred lengths (Cameras page) or try the Minimal preset.":
+        "Inquadrature che finiscono prima di essere lette: alza le durate preferite (pagina Camere) o prova il "
+        "preset Minimal.",
+    "Shots overstay: lower the preferred lengths or try the Dynamic preset.":
+        "Inquadrature che durano troppo: abbassa le durate preferite o prova il preset Dynamic.",
+    "Check the framing of {0} (position, zoom, obstacles) or lower its weight.":
+        "Controlla l'inquadratura di {0} (posizione, zoom, ostacoli) o abbassane il peso.",
+    "Cuts against the music: repeat the latency calibration (Director page) and check that the drop scene suits "
+    "drops.":
+        "Tagli contro la musica: ripeti la calibrazione della latenza (pagina Regia) e controlla che la scena del "
+        "drop sia adatta.",
+    "Repetitive edit: add a camera or a crop, or lower the cooldowns.":
+        "Montaggio ripetitivo: aggiungi una camera o un crop, o abbassa i cooldown.",
+    "One camera holds more than 85% of the time: check the weights and the coverage targets.":
+        "Una camera occupa più dell'85% del tempo: controlla i pesi e gli obiettivi di copertura.",
+    "No recurring problem found.": "Nessun problema ricorrente.",
 }

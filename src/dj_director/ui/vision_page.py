@@ -25,6 +25,7 @@ from dj_director.visual.imaging import from_rgb
 from dj_director.visual.providers import CLOUD_MODELS, LOCAL_MODELS, OllamaProvider, ProviderError, cloud_available
 
 OLLAMA_DOWNLOAD = "https://ollama.com/download"
+INFLUENCE_LEVELS = ((0.0, "off (only its vetoes)"), (0.5, "light"), (1.0, "normal"), (1.6, "strong"))
 RATE_LABELS = {"low": "Low (5 stills/s, lightest for OBS; no beat reading)", "normal": "Normal (10 stills/s)",
                "high": "High (16 stills/s, best beat reading)"}
 ISSUE_LABELS = {"black frame": "black / dark", "overexposed": "overexposed", "frozen image": "frozen image",
@@ -184,6 +185,18 @@ class VisionPage(QWidget):
         iv.addWidget(label(tr("The verdict guides the next choices for about two looks; cuts stay on the beat."),
                            "Faint", wrap=True), 1)
         sv.addLayout(iv)
+        av = QHBoxLayout()
+        self.influence = QComboBox()
+        for val, txt in INFLUENCE_LEVELS:
+            self.influence.addItem(tr(txt), val)
+        av.addWidget(label(tr("Editor advice"), "Muted"))
+        av.addWidget(self.influence)
+        self.review_frames = QCheckBox(tr("Keep two stills per cut for the post-set review"))
+        av.addWidget(self.review_frames)
+        av.addWidget(label(tr("The AI watches the edit as a director: it suggests the next shot or to stay on the "
+                              "one on air. Its advice is one argument among others, never a rule."),
+                           "Faint", wrap=True), 1)
+        sv.addLayout(av)
 
         # local models
         self.local_box = Card(tr("Local models (Ollama)"))
@@ -311,6 +324,9 @@ class VisionPage(QWidget):
         self.rate.setCurrentIndex(max(0, self.rate.findData(vc.rate)))
         self.prov_buttons.get(vc.judge_provider, self.prov_buttons["off"]).setChecked(True)
         self.interval.setValue(vc.judge_interval)
+        idx = min(range(len(INFLUENCE_LEVELS)), key=lambda i: abs(INFLUENCE_LEVELS[i][0] - vc.ai_influence))
+        self.influence.setCurrentIndex(idx)
+        self.review_frames.setChecked(vc.review_frames)
         row = self.model_rows.get(vc.local_model)
         if row is not None:
             row["sel"].setChecked(True)
@@ -356,6 +372,8 @@ class VisionPage(QWidget):
         vc.rate = self.rate.currentData()
         vc.judge_provider = self._provider()
         vc.judge_interval = self.interval.value()
+        vc.ai_influence = float(self.influence.currentData())
+        vc.review_frames = self.review_frames.isChecked()
         vc.local_model = self._local_model()
         vc.cloud_model = self.cloud_model.currentData()
         vc.rois = {k: list(v) for k, v in self._rois.items()}

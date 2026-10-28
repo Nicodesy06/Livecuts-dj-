@@ -3,6 +3,45 @@
 Tutte le modifiche rilevanti di DJ Director AI. Formato ispirato a
 [Keep a Changelog](https://keepachangelog.com/it/1.1.0/); versioni [SemVer](https://semver.org/lang/it/).
 
+## [0.5.0] — 2026-10-28 · L'occhio lento ragiona da regista
+
+### Occhio lento da regista
+- **Sa cosa sta succedendo nel montaggio**: oltre alle immagini riceve
+  - la camera in onda, da quanto e con quale durata prevista;
+  - gli ultimi tagli e il taglio già programmato;
+  - il tempo di ogni camera;
+  - i metadati delle inquadrature della 0.4 (scala, soggetto, angolazione, camera fisica, crop);
+  - lo stato della musica, la confidenza del beat e il gesto sul mixer in corso.
+- **Vede il movimento**: ogni camera arriva con il movimento misurato dall'occhio veloce (nella zona del
+  mixer, se disegnata) e con l'indicazione se pulsa a tempo. Una foto da sola non lo mostra.
+- **Giudica da regista**:
+  - per ogni camera, composizione (0–1) e momento (mani sul mixer, gesto del DJ, pubblico al picco,
+    luci, DJ col pubblico);
+  - per il montaggio, *resta* sull'inquadratura in onda o *poi* la camera da mostrare dopo, con il
+    perché in una riga (Dashboard e log).
+- **Il consiglio pesa ma non comanda**:
+  - la scelta suggerita è una voce in più nello Shot Planner;
+  - *resta* allunga un insert fino alla sua durata preferita, mai oltre il tetto;
+  - sul Master *resta* rimanda solo i tagli di routine;
+  - camere con veto e giudizi scaduti vengono ignorati.
+- **Nuova impostazione "Consigli da regista"** nella pagina Visione (spenti / leggeri / normali / forti).
+
+### Revisione post-serata
+- **Immagini salvate**: a ogni taglio vengono salvate due immagini (prima / dopo) accanto al log delle
+  decisioni. È disattivabile.
+- **Revisione di una serata…** (pagina Decisioni e log) o `dj-director review`:
+  - report HTML con i numeri del montaggio e i controlli automatici;
+  - con l'occhio lento attivo, la critica di ogni taglio: giudizio, problemi, commento;
+  - suggerimenti su cosa regolare, mai applicati da soli.
+- **Robustezza**: funziona con il modello locale (offline) o cloud. Se il modello si ferma, il report
+  esce comunque.
+
+### Compatibilità
+- Configurazioni, preset e log precedenti invariati.
+- Le risposte nel formato precedente vengono ancora lette.
+- Con "Consigli da regista" spenti l'AI torna al comportamento della 0.4 (interesse, veti, camera per il
+  drop).
+
 ## [0.4.0] — 2026-10-28 · Director 2.0: grammatica multicamera professionale
 
 ### Affidabilità (P0)

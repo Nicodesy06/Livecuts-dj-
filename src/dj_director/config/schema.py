@@ -167,6 +167,7 @@ _RANGES: dict[str, tuple[float, float]] = {
     "mix_shot_cap": (12.0, 25.0),
     "judge_interval": (3.0, 60.0),
     "judge_timeout": (2.0, 60.0),
+    "ai_influence": (0.0, 2.0),
 }
 
 VISION_RATES = ("low", "normal", "high")          # screenshot requests per second: 5 / 10 / 16
@@ -321,6 +322,8 @@ class VisionConfig:
     cloud_model: str = "claude-opus-5-5"
     judge_interval: float = 8.0       # s between two looks of the slow eye
     judge_timeout: float = 20.0
+    ai_influence: float = 1.0         # weight of the slow eye's editorial advice (0 = only its veto)
+    review_frames: bool = True        # keep two small stills per cut for the post-set review
 
 
 @dataclass

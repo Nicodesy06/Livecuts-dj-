@@ -24,6 +24,7 @@ CALIBRATING  sync-offset calibration: two cameras alternate on the beat grid.
 from __future__ import annotations
 
 import logging
+import math
 import queue
 import re
 import threading
@@ -44,6 +45,7 @@ from dj_director.core.events import (AudioStatusEvent, DirectorAction, DirectorD
                                      SceneSwitchRequested)
 from dj_director.core.switching import AirtimeLedger, SwitchRecord, SwitchStatus, SwitchTracker
 from dj_director.diagnostics.logging_setup import DecisionLog, register_secret
+from dj_director.review.journal import FrameJournal, frames_dir
 from dj_director.director.calibration import CalibrationRunner
 from dj_director.director.cameras import CameraRegistry
 from dj_director.director.engine import DirectorEngine, EngineSettings
@@ -52,6 +54,9 @@ from dj_director.obs.controller import ObsController, SceneInfo
 from dj_director.visual.vision import VisionService, VisionStatus
 
 log = logging.getLogger(__name__)
+
+GESTURE_WORDS = {"eq_cut": "cutting an EQ band", "filter": "sweeping a filter",
+                 "eq_return": "bringing an EQ band back"}
 TICK = 0.05
 SECRET_KEY = "obs_password"
 CLAUDE_KEY = "claude_api_key"
@@ -126,6 +131,8 @@ class AppController:
             language=self.config.ui_language if self.config.ui_language in ("it", "en") else "en")
         self.visual = self.vision
         self.decision_log = DecisionLog(enabled=self.config.log_decisions)
+        self._journal: Optional[FrameJournal] = None
+        self._journal_n = 0
         self.decisions: deque[DirectorDecisionEvent] = deque(maxlen=300)
         self.status = DirectorStatus.OFF
         self.message = ""
@@ -166,16 +173,39 @@ class AppController:
                               visual_activity=lambda cam: self.visual.activity(cam.name),
                               visual_issue=lambda cam: self.visual.issue(cam.name),
                               reveal_hint=self.visual.reveal_hint,
-                              visual_quality=lambda cam: self.visual.quality(cam.name))
+                              visual_quality=lambda cam: self.visual.quality(cam.name),
+                              editor_hint=getattr(self.visual, "editor_hint", lambda: None))
 
     def _vision_context(self) -> dict:
+        """What the slow eye knows of the edit and of the music (called from its own thread)."""
         snap = self.analysis.latest()
         e = self.engine
         now = time.monotonic()
-        return {"state": snap.state.label if snap else "unknown",
-                "bpm": snap.beat.bpm if snap else 0.0,
-                "on_air": e.current,
-                "since_drop": now - e.phrase_anchor if e.phrase_anchor else None}
+        ctx: dict = {"state": snap.state.label if snap else "unknown",
+                     "bpm": snap.beat.bpm if snap else 0.0,
+                     "beat_conf": snap.beat.confidence if snap else None,
+                     "gesture": GESTURE_WORDS.get((snap.mix_gesture or "").split(":", 1)[0], "")
+                     if snap and snap.mix_gesture else "",
+                     "on_air": e.current,
+                     "since_drop": now - e.phrase_anchor if e.phrase_anchor else None}
+        try:
+            hist = list(e.history[-7:])
+            if e.current and hist and hist[-1].camera == e.current and hist[-1].end is None:
+                ctx["on_air_for"] = now - hist[-1].start
+                hist = hist[:-1]
+            ctx["recent"] = [(h.camera, (h.end or now) - h.start) for h in hist[-6:]]
+            sp = e.shot_spec
+            if sp is not None:
+                ctx["on_air_window"] = (f"{sp.pref_min:.0f}-{sp.pref_max:.0f} s" if math.isinf(sp.cap)
+                                        else f"{sp.pref_min:.0f}-{sp.pref_max:.0f} s, max {sp.cap:.0f} s")
+            pend = e.pending
+            if pend is not None:
+                ctx["next"] = f"cut to {pend.target} in {max(0.0, pend.fire_at - now):.1f} s"
+            cov = e.coverage(now)
+            ctx["coverage"] = ", ".join(f"{k} {v * 100:.0f}%" for k, v in cov.items())
+        except Exception:                       # engine state read from another thread: best effort
+            log.debug("vision context incomplete", exc_info=True)
+        return ctx
 
     def _reveal_name(self) -> Optional[str]:
         try:
@@ -205,6 +235,8 @@ class AppController:
         self.audio.stop()
         self.obs.stop()
         self.decision_log.close()
+        if self._journal is not None:
+            self._journal.close()
 
     def save_config(self) -> None:
         self.config_manager.save(self.config)
@@ -512,6 +544,7 @@ class AppController:
     def _execute(self, d: DirectorDecisionEvent, previous: Optional[str]) -> None:
         with self._lock:
             self._last_switch = d
+        self._journal_frames(d, previous)
         if self.shadow:
             self.airtime.on_program(d.candidate_camera, d.t)      # Shadow: the decision is the "air"
             return
@@ -527,6 +560,27 @@ class AppController:
             self.decision_log.write("SceneSwitchFailed",
                                     SceneSwitchFailed(time.monotonic(), scene, d.correlation_id,
                                                       "OBS not ready or scene missing"))
+
+    def _journal_frames(self, d: DirectorDecisionEvent, previous: Optional[str]) -> None:
+        """Keep the last still of the outgoing shot and the first of the incoming one (post-set review)."""
+        if not (self.config.vision.enabled and self.config.vision.review_frames and self.decision_log.enabled):
+            return
+        try:
+            now = time.monotonic()
+            fast = self.vision.fast
+            before = fast.latest_rgb(previous, now, max_age=3.0) if previous else None
+            after = fast.latest_rgb(d.candidate_camera, now, max_age=3.0)
+            if before is None and after is None:
+                return
+            if self._journal is None or self._journal.dir != frames_dir(self.decision_log.path):
+                self._journal = FrameJournal(self.decision_log.path)
+            self._journal_n += 1
+            b, a = self._journal.save(self._journal_n, before, after)
+            self.decision_log.write("ShotFrames", {"t": d.t, "correlation_id": d.correlation_id,
+                                                   "scene": d.candidate_camera, "previous": previous,
+                                                   "before": b, "after": a})
+        except Exception:
+            log.debug("review frames not saved", exc_info=True)
 
     def _record(self, d: DirectorDecisionEvent) -> None:
         if d.action == DirectorAction.HOLD:

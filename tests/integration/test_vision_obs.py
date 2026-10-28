@@ -91,3 +91,25 @@ def test_black_camera_is_never_put_on_air(env):
     assert all(r[1].get("sceneUuid") != bad_uuid and r[1].get("sceneName") != "Cam S" for r in switches())
     snap = ctrl.snapshot()
     assert any(c.name == "Cam S" and c.issue == "black frame" for c in snap.vision.cameras)
+
+
+def test_stills_of_every_cut_are_kept_for_the_post_set_review(env):
+    import json
+
+    from dj_director.review.critic import review_session
+    ctrl, srv = env
+    srv.scene_look["Cam S"] = {}
+    assert wait(lambda: ctrl.vision.issue("Cam S") == "", 15)
+    ctrl.start_director(shadow=False)
+    assert wait(lambda: len([r for r in srv.requests if r[0] == "SetCurrentProgramScene"]) >= 4, 40)
+    ctx = ctrl._vision_context()
+    assert ctx["on_air"] and "on_air_for" in ctx and ctx["recent"] and "coverage" in ctx
+    ctrl.stop_director()
+    ctrl._journal.close()
+    path = ctrl.decision_log.path
+    recs = [json.loads(line) for line in path.read_text("utf-8").splitlines()]
+    frames = [r for r in recs if r["kind"] == "ShotFrames"]
+    assert len(frames) >= 3 and all((path.parent / r["after"]).exists() for r in frames if r["after"])
+    review, out = review_session(path, None, ctrl.config.cameras, "en")
+    assert len(review.cuts) >= 4 and sum(bool(c.after) for c in review.cuts) >= 3
+    assert out.exists() and "-frames/" in out.read_text("utf-8")

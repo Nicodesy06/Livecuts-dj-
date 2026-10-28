@@ -205,10 +205,20 @@ class LogPage(QWidget):
         b = QPushButton(tr("Open logs folder"))
         b.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_dir()))))
         row.addWidget(b)
+        self.btn_review = QPushButton(tr("Review a set…"))
+        self.btn_review.setToolTip(tr("Post-set review: the AI editor (slow eye's model) judges every cut from the "
+                                      "stills saved during the set, and the report suggests what to adjust."))
+        self.btn_review.clicked.connect(self.review)
+        row.addWidget(self.btn_review)
+        self.review_msg = label("", "Faint")
+        row.addWidget(self.review_msg)
         row.addStretch()
         self.path = label("", "Faint")
         row.addWidget(self.path)
         v.addLayout(row)
+        self._rworker = Worker()
+        self._rworker.done.connect(self._review_done)
+        self._rworker.progress.connect(lambda f: self.review_msg.setText(tr("reviewing… {0:.0f}%").format(f * 100)))
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels([tr("Time"), tr("Action"), tr("Camera"), tr("Music state"), tr("Conf."), tr("Reason")])
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
@@ -216,6 +226,41 @@ class LogPage(QWidget):
         self.table.setMinimumHeight(460)
         v.addWidget(self.table)
         self._n = -1
+
+    def review(self) -> None:
+        p, _ = QFileDialog.getOpenFileName(self, tr("Session to review"), str(log_dir()),
+                                           "Decision log (decisions-*.jsonl)")
+        if p:
+            self.start_review(p)
+
+    def start_review(self, path: str) -> None:
+        from dj_director.review.critic import make_provider, review_session
+        from dj_director.ui.i18n import language
+        from dj_director.visual.providers import ProviderError
+        cfg = self.ctrl.config
+        try:
+            provider = make_provider(cfg.vision, self.ctrl.secrets.get("claude_api_key") or "")
+        except ProviderError as e:
+            provider = None
+            self.review_msg.setText(tr("AI not available ({0}): numbers and rules only").format(e))
+        self.btn_review.setEnabled(False)
+        self.review_msg.setText(tr("reviewing… {0:.0f}%").format(0))
+        prog = self._rworker.progress
+        self._rworker.run(review_session, path, provider, list(cfg.cameras), language(),
+                          lambda i, n: prog.emit(i / max(n, 1)))
+
+    def _review_done(self, res, exc) -> None:
+        self.btn_review.setEnabled(True)
+        if exc is not None:
+            self.review_msg.setText(tr("Review failed: {0}").format(exc))
+            return
+        review, out = res
+        msg = tr("{0} cuts, {1} judged by the AI").format(len(review.cuts), len(review.reviewed()))
+        if review.ai_error:
+            msg += " · " + tr("AI critique stopped: {0}").format(review.ai_error)
+        self.review_msg.setText(msg)
+        self.last_report = out
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(out)))
 
     def refresh(self, s: AppSnapshot) -> None:
         L = s.latency

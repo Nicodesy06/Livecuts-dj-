@@ -208,6 +208,42 @@ def _cmd_selftest(a: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def _cmd_review(a) -> int:
+    import dataclasses
+
+    from dj_director.config.manager import ConfigManager
+    from dj_director.config.secrets import SecretStore
+    from dj_director.diagnostics.logging_setup import log_dir
+    from dj_director.review.critic import make_provider, review_session
+    from dj_director.ui.i18n import set_language
+    from dj_director.visual.imaging import warm_up
+    from dj_director.visual.providers import ProviderError
+    mgr = ConfigManager()
+    cfg = mgr.load()
+    lang = set_language(cfg.ui_language)
+    path = Path(a.log) if a.log else max(log_dir().glob("decisions-*.jsonl"), default=None,
+                                         key=lambda p: p.stat().st_mtime)
+    if path is None or not path.exists():
+        print("no decision log found")
+        return 1
+    warm_up()
+    vcfg = cfg.vision if a.ai == "config" else dataclasses.replace(cfg.vision, judge_provider=a.ai)
+    try:
+        provider = make_provider(vcfg, SecretStore(mgr.path.parent).get("claude_api_key") or "")
+    except ProviderError as e:
+        print(f"AI critique not available: {e}")
+        provider = None
+    review, out = review_session(path, provider, cfg.cameras, lang,
+                                 progress=lambda i, n: print(f"  batch {i}/{n}", flush=True),
+                                 out=Path(a.out) if a.out else None)
+    print(f"{len(review.cuts)} cuts, {len(review.reviewed())} judged by AI"
+          + (f" (stopped: {review.ai_error})" if review.ai_error else ""))
+    for s in review.suggestions:
+        print(" - " + s)
+    print(f"report: {out}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="dj-director", description="DJ Director AI")
     ap.add_argument("--verbose", action="store_true")
@@ -235,6 +271,11 @@ def main(argv: list[str] | None = None) -> int:
     y.add_argument("--bpm", type=float, default=124.0)
     t = sub.add_parser("selftest", help="headless verification of an installation/build")
     t.add_argument("--out", help="also write the report to this file")
+    r = sub.add_parser("review", help="post-set review of a session: report with the AI editor's critique")
+    r.add_argument("log", nargs="?", help="decisions-*.jsonl (default: the most recent)")
+    r.add_argument("--ai", choices=["config", "off", "local", "cloud"], default="config",
+                   help="which AI judges the cuts (default: the slow eye's setting)")
+    r.add_argument("--out", help="HTML report path (default: next to the log)")
     f = sub.add_parser("fake-obs", help="run a fake OBS WebSocket server for testing")
     f.add_argument("--port", type=int, default=4455)
     f.add_argument("--password", default="")
@@ -244,7 +285,8 @@ def main(argv: list[str] | None = None) -> int:
         return main_gui(verbose=a.verbose)
     setup_logging(a.verbose)
     return {"simulate": _cmd_simulate, "devices": _cmd_devices, "obs-test": _cmd_obs_test,
-            "synth": _cmd_synth, "fake-obs": _cmd_fake_obs, "selftest": _cmd_selftest}[a.cmd](a)
+            "synth": _cmd_synth, "fake-obs": _cmd_fake_obs, "selftest": _cmd_selftest,
+            "review": _cmd_review}[a.cmd](a)
 
 
 def main_gui(verbose: bool = False) -> int:

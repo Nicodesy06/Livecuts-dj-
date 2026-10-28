@@ -157,7 +157,11 @@ def test_vision_page_live_view_roi_and_provider(qapp, tmp_path):
         page.prov_buttons["local"].setChecked(True)
         assert page.local_box.isVisible() and not page.cloud_box.isVisible()
         page.prov_buttons["off"].setChecked(True)
+        assert page.influence.currentData() == 1.0 and page.review_frames.isChecked()
+        page.influence.setCurrentIndex(3)
+        page.review_frames.setChecked(False)
         page.save()
+        assert ctrl.config.vision.ai_influence == 1.6 and not ctrl.config.vision.review_frames
         roi = ctrl.config.vision.rois["Cam D"]
         assert 0.0 <= roi[0] < 0.1 and 0.4 < roi[2] <= 0.5
         assert ConfigManager().load().vision.rois["Cam D"] == roi        # persisted
@@ -194,6 +198,28 @@ def test_cameras_page_framing_editor_saves_metadata_and_warns(qapp):
         w(1, 1).setCurrentIndex(w(1, 1).findData("MEDIUM"))
         page.save()
         assert page.framing_warn.text() == "No framing problems found."
+    finally:
+        page.close()
+        ctrl.shutdown()
+
+
+def test_log_page_reviews_a_set(qapp, tmp_path, monkeypatch):
+    from PySide6.QtGui import QDesktopServices
+    from dj_director.ui.tools_pages import LogPage
+    from tests.unit.test_slow_eye_director import _session
+    opened = []
+    monkeypatch.setattr(QDesktopServices, "openUrl", lambda url: opened.append(url.toLocalFile()))
+    ctrl = AppController()
+    page = LogPage(ctrl)
+    page.show()
+    try:
+        page.start_review(str(_session(tmp_path)))           # slow eye off: numbers and rules only
+        deadline = time.time() + 20
+        while time.time() < deadline and not opened:
+            qapp.processEvents()
+            time.sleep(0.05)
+        assert opened and opened[0].endswith("-review.html") and page.btn_review.isEnabled()
+        assert "9" in page.review_msg.text()
     finally:
         page.close()
         ctrl.shutdown()

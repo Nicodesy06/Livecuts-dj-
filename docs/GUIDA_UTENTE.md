@@ -1,6 +1,6 @@
 # DJ Director AI — Guida all'utilizzo
 
-Versione 0.4.0 · Windows 10/11 (64 bit)
+Versione 0.5.0 · Windows 10/11 (64 bit)
 
 DJ Director AI è un regista automatico per i tuoi DJ set. Ascolta la musica che esce dal mixer, ne capisce
 l'andamento (tempo, beat, breakdown, drop) e cambia da solo le inquadrature in OBS Studio, come farebbe
@@ -308,6 +308,29 @@ della serata.
 L'elenco completo delle decisioni, le latenze misurate e il pulsante **Apri cartella log**. Ogni sessione
 salva un file `decisions-AAAAMMGG-HHMMSS.jsonl`.
 
+**Revisione di una serata** (dalla 0.5). A ogni taglio il programma salva due piccole immagini: l'ultima
+dell'inquadratura che finisce e la prima di quella che comincia. Puoi disattivarlo nella pagina Visione.
+Dopo la serata premi **Revisione di una serata…** e scegli il file della sessione. Si apre un report nel
+browser con:
+
+![Revisione di una serata (qui senza critica AI)](images/revisione.png)
+
+- i numeri del montaggio: durata, tagli al minuto, durata tipica delle inquadrature, tempo di ogni camera;
+- i controlli automatici: inquadrature brevissime, schemi A-B-A-B, jump cut e salti fronte-retro secondo
+  i metadati delle inquadrature;
+- se l'occhio lento è attivo, **la critica dell'AI su ogni taglio**:
+  - giudizio: *buono*, *accettabile*, *debole* o *da evitare*;
+  - problemi trovati: jump cut, inquadratura precedente troppo breve o troppo lunga, inquadratura
+    povera o fatta male, taglio contro la musica, montaggio ripetitivo;
+  - un commento;
+- **cosa guardare**: quali impostazioni rivedere in base ai problemi che si ripetono. Il programma non
+  cambia nulla da solo.
+
+Con il modello locale la revisione è gratuita e offline. Una serata di 2 ore con circa 300 tagli richiede
+una cinquantina di sguardi del modello, quindi alcuni minuti. La critica vede due immagini per taglio e lo
+stato della musica, non il video intero: confrontala con la registrazione prima di cambiare le impostazioni.
+Dal terminale: `dj-director-cli.exe review` (ultima sessione) oppure `dj-director-cli.exe review percorso\decisions-….jsonl`.
+
 ---
 
 ## 9. Visione: il regista guarda le camere
@@ -341,13 +364,33 @@ lettura: in OBS non cambia nulla, e passa da una connessione separata, quindi no
 ![Pagina Visione: scelta del modello AI](images/visione-ai.png)
 
 Ogni pochi secondi (8 s di default) un modello di intelligenza artificiale guarda **tutte le camere
-insieme** e dice al regista:
-- quali inquadrature sono interessanti in quel momento (il DJ che alza le mani, il pubblico che salta);
-- quali non sono utilizzabili (una camera che inquadra il soffitto);
-- quale camera mostrerebbe meglio il prossimo drop.
+insieme** e ragiona **da regista** (dalla 0.5). Oltre alle immagini riceve:
+- **lo stato del montaggio**: cosa è in onda e da quanto, gli ultimi tagli, il prossimo taglio già
+  programmato e il tempo di ogni camera;
+- **com'è fatta ogni inquadratura**: scala, soggetto, angolazione e camera fisica, se le hai indicate
+  nella pagina Camere;
+- **il movimento** misurato dall'occhio veloce (anche "a tempo" con la musica), che da una foto non si
+  vedrebbe, e se stai lavorando sul mixer.
+
+Per ogni camera dice se è utilizzabile, quanto è interessante, **com'è inquadrata** (soggetto tagliato,
+qualcuno davanti) e **che momento mostra**: mani sul mixer, un tuo gesto, il pubblico al picco, le luci.
+Poi, come farebbe un regista:
+- **resta**: l'inquadratura in onda mostra qualcosa da tenere ancora un po';
+- **poi**: quale inquadratura dovrebbe venire dopo, cioè un vero cambio rispetto a quello appena visto;
+- quale camera mostrerebbe meglio il prossimo drop;
+- **perché**, in una riga in italiano. La vedi in Dashboard e nel log delle decisioni.
 
 Il giudizio **orienta** le scelte per una quindicina di secondi. I tagli restano sul beat, decisi dal
 regista: un modello lento non può far tagliare "in ritardo".
+
+**Consigli da regista** (pagina Visione): quanto pesa il consiglio dell'AI.
+- *Normali* (consigliato): il suggerimento è un argomento in più nella scelta, accanto a copertura,
+  musica, continuità e qualità. Non scavalca le regole.
+- *Leggeri* o *forti*: lo stesso, con meno o più peso.
+- *Spenti*: l'AI segnala solo le camere da evitare.
+
+"Resta" allunga un'inquadratura fino alla sua durata preferita, mai oltre il suo massimo. Sul Master
+rimanda solo i tagli "di routine": un drop o un tuo gesto sul mixer tagliano comunque.
 
 | Scelta | Pro | Contro |
 |---|---|---|
@@ -507,7 +550,9 @@ predefiniti, senza bloccarsi.
 - La lettura "a tempo" ha bisogno di almeno 5–6 istantanee al secondo della stessa camera: è affidabile
   solo per la camera del drop e non con la frequenza *Bassa*.
 - L'occhio lento (modello AI) è stato verificato nel codice e con server di prova, non ancora su serate
-  reali: valuta i suoi giudizi in modalità Shadow.
+  reali: valuta i suoi giudizi in modalità Shadow. Quanto ragiona davvero "da regista" dipende dal
+  modello: i modelli locali piccoli (2–4B) colgono meno sfumature del cloud. La revisione post-serata è il
+  modo più semplice per capire se i suoi consigli ti convincono.
 - La qualità della regia va giudicata **guardando registrazioni reali**: le simulazioni verificano le
   regole (niente jump cut, durate, ritorno al Master), non l'estetica.
 - Il riconoscimento del movimento della camera e del mixer coperto si basa su misure semplici dell'immagine:

@@ -21,13 +21,26 @@ Contract:
 * ``reveal_hint`` returns the scene the slow eye suggests for the next drop.
 * ``quality`` returns HEALTHY / UNKNOWN / FAILED; missing analysis is UNKNOWN,
   never assumed good.
+* ``editor_hint`` (0.5, optional) returns the slow eye's editorial advice - the
+  shot to cut to next, or to stay on the shot on air - with its reason and a
+  weight. It is advice: the engine adds it to its ranking and may let an insert
+  run to the end of its preferred window, never beyond, and it never times a cut.
 All must be cheap (cached), never block, and never claim more than they
 measure (hand *movement* is not "EQ adjustment").
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Optional, Protocol
+
+
+@dataclass(frozen=True)
+class EditorHint:
+    next_pick: Optional[str] = None      # scene the AI would cut to next
+    hold: Optional[str] = None           # on-air scene the AI wants to stay on a little longer
+    reason: str = ""
+    weight: float = 1.0                  # user setting (Vision page), 0 = advice ignored
 
 
 class VisualAnalyzer(Protocol):
@@ -42,6 +55,8 @@ class VisualAnalyzer(Protocol):
     def reveal_hint(self) -> Optional[str]: ...
 
     def quality(self, camera_name: str) -> str: ...
+
+    def editor_hint(self) -> Optional[EditorHint]: ...
 
 
 class NullVisualAnalyzer:
@@ -64,3 +79,6 @@ class NullVisualAnalyzer:
 
     def quality(self, camera_name: str) -> str:
         return "UNKNOWN"
+
+    def editor_hint(self) -> Optional[EditorHint]:
+        return None

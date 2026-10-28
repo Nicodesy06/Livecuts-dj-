@@ -80,6 +80,35 @@ def scroll_to(page, fraction):
         bar.setValue(int(bar.maximum() * fraction))
 
 
+def demo_verdict(ctrl) -> None:
+    """Show what the slow eye's editorial advice looks like (the demo has no model running)."""
+    from dj_director.visual.judge import CameraJudgement, JudgeResult, SceneJudge
+    j = SceneJudge(None, lambda: [], lambda: {})
+    cams = {c.scene_name: CameraJudgement(True, 0.5, "", "") for c in ctrl.config.cameras}
+    cams["Cam Pubblico"] = CameraJudgement(True, 0.9, "", "pubblico con le mani alzate", 0.8, "crowd_peak")
+    j.result = JudgeResult(time.monotonic(), cams, "Cam Pubblico", "", 2.1, "qwen3-vl:4b", "Cam Pubblico", None,
+                           "il pubblico ha le mani alzate, cambio netto dal mixer", ctrl.engine.current)
+    j.state = "running"
+    ctrl.vision.judge = j
+
+
+def review_shot(ctrl) -> None:
+    """The post-set review of the demo session (numbers and rule checks: no model in the demo)."""
+    from dj_director.review.critic import review_session
+    ctrl.stop_director()
+    if ctrl._journal is not None:
+        ctrl._journal.close()
+    _review, html = review_session(ctrl.decision_log.path, None, ctrl.config.cameras, "it")
+    # rendered by Playwright (Node), when available
+    import subprocess
+    js = ("const {chromium}=require('playwright');(async()=>{const b=await chromium.launch();"
+          "const p=await b.newPage({viewport:{width:1240,height:900},colorScheme:'light'});"
+          f"await p.goto({html.as_uri()!r});await p.waitForTimeout(500);"
+          f"await p.screenshot({{path:{str(OUT / 'revisione.png')!r}}});await b.close();}})();")
+    r = subprocess.run(["node", "-e", js], capture_output=True, text=True)
+    print(f"   {OUT / 'revisione.png'}" if r.returncode == 0 else f"review screenshot skipped: {r.stderr[:200]}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--live-seconds", type=float, default=75)
@@ -140,6 +169,7 @@ def main() -> int:
     print("live session…")
     ctrl.start_director(shadow=False)
     pump(app, args.live_seconds)
+    demo_verdict(ctrl)                       # example of the slow eye's advice (no model in the demo)
     page(0)
     save(win, "dashboard")
 
@@ -195,6 +225,7 @@ def main() -> int:
 
     page(7)
     save(win, "decisioni")
+    review_shot(ctrl)
 
     # --- setup wizard
     from dj_director.ui.wizard import SetupWizard

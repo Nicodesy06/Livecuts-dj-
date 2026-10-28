@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dj-director-ai"
-version = "0.4.0"
+version = "0.5.0"
 description = "Automatic music-aware multicamera director for DJ performances, controlling OBS Studio via obs-websocket 5.x"
 readme = "README.md"
 requires-python = ">=3.11"

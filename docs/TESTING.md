@@ -10,7 +10,7 @@ dj-director simulate --synthetic --preset natural --seed 11
 
 ## Suite automatica (eseguita in questa milestone su Linux, Python 3.13)
 
-Risultato dell'ultima esecuzione (v0.3.0): **187 test superati, 1 saltato** (`test_real_sessions`: nessuna registrazione reale presente).
+Risultato dell'ultima esecuzione (v0.5.0): **252 test superati, 1 saltato** (`test_real_sessions`: nessuna registrazione reale presente).
 
 | Area | File | Copertura |
 |---|---|---|
@@ -24,6 +24,7 @@ Risultato dell'ultima esecuzione (v0.3.0): **187 test superati, 1 saltato** (`te
 | Stato dei cambi (0.4) | `unit/test_switching.py`, `integration/test_obs_controller.py`, `integration/test_app_controller.py` | REQUESTED → CONFIRMED / FAILED / CANCELLED; comando in coda sostituito e annullato; conferma tardiva dopo timeout; evento perso riconciliato dal poll del Program; cambio manuale durante la disconnessione rispettato alla riconnessione; tempo in onda solo confermato (un cambio fallito non conta, Shadow non conta) |
 | Continuità, Shot Planner e crop (0.4) | `unit/test_continuity.py` | metadati sconosciuti neutri; stesso gruppo visivo; crop della stessa camera come scala; angolo e scala simili; asse fronte-retro con raccordo ed eccezione editoriale; direzione in scena; transizione ripetuta; roundtrip e vecchie configurazioni; il planner evita i jump cut quando c'è un'alternativa (controprova: il motore 0.3 li fa) e li fa se è l'unica opzione; piano perché/cosa/quando/per quanto su ogni taglio; riproducibilità; 1–3 camere senza metadati; avvisi sui crop (stessa scala, scala mancante, crop senza camera fisica, zoom eccessivo, dettaglio ritagliato) |
 | Grammatica contestuale (0.4) | `unit/test_grammar.py`, `unit/test_vision.py` | groove stabile con Master dominante; breakdown con meno tagli e inquadrature d'atmosfera; drop su pubblico/campi larghi, mai su un dettaglio e mai oltre mezzo beat in ritardo; rivelazione tenuta solo con beat affidabile; musica incerta; mani continue che non allungano un Detail; gesto audio pesato dalla conferma visiva; qualità HEALTHY / UNKNOWN / FAILED, camera in movimento, mixer non visibile, luci da club |
+| Occhio lento da regista e revisione (0.5) | `unit/test_slow_eye_director.py`, `integration/test_vision_obs.py`, `integration/test_gui.py` | schema con giudizio da regista; validazione (valori limitati, momento sconosciuto, scelta su camera inutilizzabile scartata, "resta" solo per la camera in onda, scelta = camera in onda → resta, risposte vecchie ancora lette); prompt con metadati, movimento, tagli recenti, tempo in onda, taglio programmato, gesto; consiglio solo se fresco, pesato e mai su una camera con veto; **la scelta dell'AI è un argomento tra gli altri** (più tagli verso la camera suggerita, Master e copertura restano, peso 0 = sequenza identica); **"resta" allunga le inquadrature ma mai oltre la finestra preferita**; un consiglio che va in errore non ferma il motore; motivi tradotti; immagini dei tagli salvate; sessione letta con durate e controlli (inquadratura brevissima, A-B-A-B, jump cut dai metadati); critica a gruppi con schema dedicato, numeri fuori elenco scartati, interruzione del modello gestita, report HTML in italiano; suggerimenti deterministici; **app completa con OBS simulato: immagini salvate a ogni taglio e revisione del log reale**; pagina Visione (peso del consiglio, immagini per la revisione) e pulsante di revisione |
 | OBS (integrazione) | `integration/test_obs_controller.py` | connessione, password errata (nessun tentativo ripetuto), OBS irraggiungibile senza blocchi, timeout, cambio riuscito via UUID, cambio fallito, scena sconosciuta, cambio esterno, rinomina/rimozione, Studio Mode (Preview intatta), riconnessione dopo riavvio, spegnimento di OBS |
 | App end-to-end (real-time) | `integration/test_app_controller.py` | LIVE comanda OBS, **Shadow non invia mai comandi**, Stop ferma subito, override rispettato e poi ripresa, scena non gestita, disconnessione → ARMED → LIVE, rinomina persistita, Force Master |
 | Sorgenti audio | `unit/test_audio_sources.py` | riconoscimento UCA222 / interfacce / microfoni ambientali, suggerimento, deduplica host API, attività musica vs ronzio, classifica del rilevamento automatico, zeri digitali (privacy microfono), riempimento del silenzio nel loopback |
@@ -170,3 +171,8 @@ su registrazioni reali.
         Camere, qualità dell'immagine ritagliata a 1080p.
 17. [ ] **Stato dei cambi con OBS reale**: Studio Mode con transizioni lunghe, cambio manuale durante una
         disconnessione, poll del Program sotto carico di registrazione.
+18. [ ] **Occhio lento da regista con un modello vero** (0.5): Qwen3-VL 4B sulla RTX 4060 e Claude
+        in cloud, in Shadow su un set reale. Leggere i "perché" in Dashboard, verificare che "resta" e
+        "poi" abbiano senso e che il modello locale risponda in tempo (≤ 8 s) con OBS in codifica.
+19. [ ] **Revisione post-serata** su una serata vera: tempo con il modello locale, qualità dei giudizi
+        confrontati con la registrazione, utilità dei suggerimenti.

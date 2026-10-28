@@ -21,6 +21,7 @@ WHAT combines, with every term visible in ``parts``:
 * ``continuity``  cut grammar from the current shot (director.continuity)
 * ``context``     DJ-set grammar: breakdown, build-up, drop, active mixing
 * ``quality``     source health (HEALTHY / UNKNOWN; FAILED never reaches here)
+* ``ai``          the slow eye's pick for the next shot, as an editor (0.5, weighted by the user)
 
 No randomness: the same inputs give the same ranking (ties broken by name).
 """
@@ -41,6 +42,7 @@ if TYPE_CHECKING:                                  # pragma: no cover
 
 R = CameraRole
 GESTURE_BONUS = 0.9            # mixer shot relevance while the DJ works the mixer (x corroboration)
+AI_PICK_BONUS = 0.3            # the slow eye's next-shot pick (x user weight): one argument among others
 
 
 @dataclass
@@ -112,6 +114,8 @@ class ShotPlanner:
         mixer = e.mixer_camera() if gesture else None
         corroboration = self.gesture_corroboration() if gesture else 0.0
         quality_known = e.quality_known()
+        hint = e.ai_hint()
+        ai_pick = hint.next_pick if hint is not None else None
         out: list[Candidate] = []
         for c in e.reg.usable():
             if c.name == cur.name or e.reg.is_anchor(c) or now < e._failed_until.get(c.name, 0):
@@ -139,6 +143,8 @@ class ShotPlanner:
                 parts["continuity"] = p.continuity_weight * cont.value
             if p.contextual_grammar:
                 parts["context"] = self._context(c, state, mixer, corroboration)
+            if ai_pick == c.name:
+                parts["ai"] = AI_PICK_BONUS * min(hint.weight, 2.0)
             if quality_known and e.quality_of(c) == "UNKNOWN":
                 parts["quality"] = -0.05                # no analysis is not proof of a good picture
             out.append(Candidate(c, sum(parts.values()), parts, cont))

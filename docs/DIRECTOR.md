@@ -331,13 +331,49 @@ sola lettura) su una **seconda connessione**: le istantanee non rallentano mai i
   lettura del beat non è possibile.
 
 **Occhio lento** (facoltativo): ogni `judge_interval` secondi (8 s) un modello visivo riceve **un solo
-mosaico numerato** di tutte le camere e il contesto musicale (stato, BPM, camera in onda, tempo
-dall'ultimo drop). Risponde in JSON validato con uno schema:
+mosaico numerato** di tutte le camere. Il prompt di sistema lo fa ragionare da regista multicamera (casa
+sul Master, cambi netti di scala / angolo / soggetto, niente quasi-doppioni, niente salti fronte-retro
+senza raccordo). Dalla 0.5 il testo contiene anche:
+
+- per ogni camera, i **metadati dell'inquadratura** (scala, soggetto, angolazione, camera fisica e crop)
+  e il **movimento** dell'occhio veloce (`activity`, nella zona di interesse se c'è, e coerenza col beat):
+  una foto non mostra il movimento;
+- lo **stato del montaggio**: camera in onda, da quanti secondi e con quale finestra preferita, gli ultimi
+  6 tagli con la durata, il taglio già programmato, la copertura per classe;
+- la **musica**: stato, BPM, confidenza del beat, gesto sul mixer in corso, tempo dall'ultimo drop.
+
+Risponde in JSON validato con uno schema (`JUDGE_SCHEMA`):
 
 - `usable` / `issue`: un'inquadratura non utilizzabile (puntata sul soffitto, persona davanti) diventa un
   **veto** ("AI: …");
-- `interest` 0–1: entra nel punteggio di scelta della camera come `0.6 × (interesse − 0.4)`;
+- `interest` 0–1, `composition` 0–1 e `moment` (none, hands_on_mixer, dj_gesture, crowd_peak, lights,
+  dj_with_crowd) entrano nel punteggio visivo della camera:
+  `0.6 × (interesse − 0.4) + 0.3 × (composizione − 0.6) + 0.1 se c'è un momento`;
+- `next_pick`, `hold`, `reason` formano il **consiglio da regista** (`EditorHint`), pesato da
+  `vision.ai_influence` (0 = spento, 0.5 leggero, 1 normale, 1.6 forte):
+  - `next_pick` aggiunge al candidato la voce `ai = 0.3 × peso` nello Shot Planner, una tra copertura,
+    musica, continuità e qualità, e il motivo del taglio riporta "AI suggests it: …";
+  - `hold` sull'inquadratura in onda vale come **continuità** per un insert, che arriva al massimo alla
+    fine della finestra preferita e mai oltre il tetto. Sul Master riduce del `50 % × peso` solo la
+    spinta editoriale e solo prima di `pref_max`: drop e gesti tagliano comunque;
+  - una scelta su una camera con veto, o un giudizio scaduto, viene ignorata;
 - `drop_pick`: la camera migliore per rivelare il prossimo drop, se l'utente non ne ha scelta una.
+
+Le risposte vengono validate: numeri di camera fuori elenco o senza immagine scartati, valori limitati a
+0–1, `next_pick` uguale alla camera in onda letto come `hold`, `hold` accettato solo per la camera
+effettivamente in onda al momento dello sguardo.
+
+**Revisione post-serata** (`review/`): a ogni taglio eseguito (LIVE o Shadow) il controller salva in
+`decisions-…-frames/` due JPEG 384×216, l'ultima immagine dell'inquadratura uscente e la prima di quella
+entrante, e un record `ShotFrames` nel log. La revisione:
+- ricostruisce i tagli e le durate dal log;
+- calcola numeri e controlli senza AI (inquadratura precedente < 3 s, A-B-A-B, jump cut e asse dai
+  metadati);
+- manda al modello dell'occhio lento gruppi di 6 tagli, una riga prima / dopo per taglio, con il motivo
+  del regista e il contesto musicale (`REVIEW_SCHEMA`: giudizio, problemi da un elenco chiuso, commento);
+- trasforma i problemi ricorrenti (≥ 3 o ≥ 15 % dei tagli) in suggerimenti fissi, senza mai applicarli.
+
+Un errore del modello interrompe solo la critica: il report esce comunque con numeri e controlli.
 
 Il giudizio vale per `max(15 s, 2 × intervallo)` e poi scade: **orienta** le scelte, non decide mai il
 momento del taglio, che resta sul beat. Un errore del modello (non avviato, rete assente, risposta non

@@ -231,9 +231,14 @@ gesti del DJ**: una qualsiasi delle tue scene, automatica oppure spenta.
   lettura. Esclude le camere nere, sovraesposte, ferme o sfocate / coperte e misura il movimento,
   anche solo nella **zona di interesse** che disegni (per esempio il mixer). Conta il gesto nuovo, non le
   mani ferme.
-- **Occhio lento** (facoltativo): un modello AI guarda tutte le camere ogni pochi secondi e dice quali
-  sono interessanti, quali da evitare e quale mostrerebbe meglio il drop. Orienta le scelte; i tagli
-  restano sul beat.
+- **Occhio lento** (facoltativo): un modello AI guarda tutte le camere ogni pochi secondi e ragiona da
+  regista. Conosce il montaggio (cosa è in onda e da quanto, gli ultimi tagli, com'è inquadrata ogni
+  camera) e il movimento misurato dall'occhio veloce. Dice quali inquadrature sono interessanti e ben
+  composte, quale dovrebbe venire dopo o se restare su quella in onda, e quale mostrerebbe meglio il
+  drop, spiegando perché. Il consiglio è un argomento tra gli altri: i tagli restano sul beat e le regole
+  non si scavalcano.
+- **Revisione post-serata**: dopo il set, l'AI rivede ogni taglio dalle immagini salvate (prima / dopo)
+  e un report indica cosa regolare.
 
 <img src="docs/images/visione-ai.png" alt="Scelta del modello AI locale con pro e contro" width="900">
 
@@ -324,7 +329,7 @@ Altri casi nella [guida completa](docs/GUIDA_UTENTE.md#12-risoluzione-dei-proble
 git clone https://github.com/Nicodesy06/Livecuts-dj-.git && cd Livecuts-dj-
 python -m venv .venv && . .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements-lock.txt && pip install -e ".[dev]"
-QT_QPA_PLATFORM=offscreen pytest                     # 230+ test: unit, integrazione, GUI, qualità
+QT_QPA_PLATFORM=offscreen pytest                     # 250+ test: unit, integrazione, GUI, qualità
 python -m dj_director                                # avvia l'interfaccia
 ```
 
@@ -336,12 +341,13 @@ dj-director devices                                             # elenca gli ing
 dj-director obs-test --password XXX                             # prova la connessione a OBS
 dj-director fake-obs                                            # OBS simulato per i test
 dj-director selftest                                            # verifica di un'installazione
+dj-director review [decisions-….jsonl] --ai local               # revisione post-serata (report HTML)
 ```
 
 **Build Windows**: `powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1` (test, PyInstaller,
 self-test degli eseguibili, guida PDF, zip). La CI (`.github/workflows/build-windows.yml`) fa lo stesso su
 ogni push. Per pubblicare una release: *Actions › test-and-build-windows › Run workflow* con
-`release_tag` (es. `v0.4.0`). Confronto prima/dopo con una release precedente sullo stesso materiale:
+`release_tag` (es. `v0.5.0`). Confronto prima/dopo con una release precedente sullo stesso materiale:
 `python scripts/compare_engines.py [set.wav] --before v0.3.0`.
 
 **Struttura**
@@ -354,6 +360,7 @@ src/dj_director/
 ├── obs/         client obs-websocket 5 con allow-list, controller, OBS simulato
 ├── simulation/  replay deterministico, set sintetico, metriche editoriali
 ├── visual/      visione: istantanee da OBS, occhio veloce, occhio lento (Ollama / API Claude)
+├── review/      revisione post-serata: immagini di ogni taglio, critica dell'AI, report HTML
 ├── sensors/     sonda MIDI
 ├── ui/          interfaccia PySide6 e traduzioni
 ├── config/      configurazione validata, preset, password cifrata

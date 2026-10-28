@@ -37,17 +37,23 @@ JUDGE_SCHEMA = {
                     "n": {"type": "integer"},
                     "usable": {"type": "boolean"},
                     "interest": {"type": "number"},
+                    "composition": {"type": "number"},
+                    "moment": {"type": "string", "enum": ["none", "hands_on_mixer", "dj_gesture", "crowd_peak",
+                                                          "lights", "dj_with_crowd"]},
                     "issue": {"type": "string"},
                     "what": {"type": "string"},
                 },
-                "required": ["n", "usable", "interest", "issue", "what"],
+                "required": ["n", "usable", "interest", "composition", "moment", "issue", "what"],
                 "additionalProperties": False,
             },
         },
+        "hold": {"type": "boolean"},
+        "next_pick": {"type": "integer"},
         "drop_pick": {"type": "integer"},
+        "reason": {"type": "string"},
         "note": {"type": "string"},
     },
-    "required": ["cameras", "drop_pick", "note"],
+    "required": ["cameras", "hold", "next_pick", "drop_pick", "reason", "note"],
     "additionalProperties": False,
 }
 
@@ -154,14 +160,15 @@ class OllamaProvider:
         except (OSError, urllib.error.URLError) as e:
             raise ProviderError(f"cannot remove model: {e}") from None
 
-    def judge(self, image_jpeg: bytes, system: str, prompt: str, timeout: float) -> dict:
+    def judge(self, image_jpeg: bytes, system: str, prompt: str, timeout: float,
+              schema: Optional[dict] = None) -> dict:
         body = {
             "model": self.model,
             "messages": [{"role": "system", "content": system},
                          {"role": "user", "content": prompt,
                           "images": [base64.b64encode(image_jpeg).decode("ascii")]}],
             "stream": False,
-            "format": JUDGE_SCHEMA,
+            "format": schema or JUDGE_SCHEMA,
             "options": {"temperature": 0},
             "keep_alive": "30m",
         }
@@ -174,7 +181,7 @@ class OllamaProvider:
             detail = e.read().decode("utf-8", "replace")[:200]
             if self._no_think and "think" in detail.lower():
                 self._no_think = False           # model without a thinking switch: retry plainly
-                return self.judge(image_jpeg, system, prompt, timeout)
+                return self.judge(image_jpeg, system, prompt, timeout, schema)
             if e.code == 404:
                 raise ProviderError(f"model {self.model} is not installed in Ollama") from None
             raise ProviderError(f"Ollama error {e.code}: {detail}") from None
@@ -210,7 +217,8 @@ class ClaudeProvider:
         self.client = anthropic.Anthropic(api_key=api_key, max_retries=1)
         self.model = model
 
-    def judge(self, image_jpeg: bytes, system: str, prompt: str, timeout: float) -> dict:
+    def judge(self, image_jpeg: bytes, system: str, prompt: str, timeout: float,
+              schema: Optional[dict] = None) -> dict:
         anthropic = self._anthropic
         kwargs: dict = {}
         if self.model in ("claude-opus-5-5", "claude-sonnet-5-5"):
@@ -226,7 +234,7 @@ class ClaudeProvider:
                                                  "data": base64.standard_b64encode(image_jpeg).decode("ascii")}},
                     {"type": "text", "text": prompt},
                 ]}],
-                output_config={"effort": "low", "format": {"type": "json_schema", "schema": JUDGE_SCHEMA}},
+                output_config={"effort": "low", "format": {"type": "json_schema", "schema": schema or JUDGE_SCHEMA}},
                 **kwargs,
             )
         except anthropic.AuthenticationError:
