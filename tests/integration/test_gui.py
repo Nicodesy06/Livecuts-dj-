@@ -223,3 +223,47 @@ def test_log_page_reviews_a_set(qapp, tmp_path, monkeypatch):
     finally:
         page.close()
         ctrl.shutdown()
+
+
+def test_director_page_cut_look_reads_obs_transitions_and_saves(qapp):
+    pytest.importorskip("websockets")
+    from dj_director.config.schema import AppConfig
+    from dj_director.obs.fake_server import FakeObsServer
+    from dj_director.ui.settings_pages import DirectorPage
+    srv = FakeObsServer(scenes=["Cam M", "Cam D"]).start()
+    cfg = AppConfig(first_run_done=True)
+    cfg.obs.port = srv.port
+    ConfigManager().save(cfg)
+    ctrl = AppController()
+    ctrl.start_services()
+    page = DirectorPage(ctrl)
+    page.show()
+    try:
+        assert not page.zoom.isChecked() and page.zoom_amount.value() == 4 and page.special_every.value() == 25
+        deadline = time.time() + 10
+        while time.time() < deadline and not ctrl.obs.connected:
+            qapp.processEvents()
+            time.sleep(0.05)
+        page.btn_transitions.click()
+        deadline = time.time() + 10
+        while time.time() < deadline and page.special_name.count() < 3:
+            qapp.processEvents()
+            time.sleep(0.05)
+        assert page.special_name.currentText() == "Stinger DJ"           # a real transition, not Cut / Fade
+        page.zoom.setChecked(True)
+        page.zoom_amount.setValue(6)
+        page.special.setChecked(True)
+        page.special_every.setValue(20)
+        page.save()
+        t = ctrl.config.transitions
+        assert (t.zoom, t.zoom_amount, t.special, t.special_name, t.special_every) == (
+            True, 0.06, True, "Stinger DJ", 20)
+        assert ConfigManager().load().transitions == t
+        deadline = time.time() + 5
+        while time.time() < deadline and (ctrl.motion is None or ctrl.motion.state != "running"):
+            time.sleep(0.05)
+        assert ctrl.motion is not None and ctrl.motion.state == "running"      # zoom connection started
+    finally:
+        page.close()
+        ctrl.shutdown()
+        srv.stop()

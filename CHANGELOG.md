@@ -3,6 +3,35 @@
 Tutte le modifiche rilevanti di DJ Director AI. Formato ispirato a
 [Keep a Changelog](https://keepachangelog.com/it/1.1.0/); versioni [SemVer](https://semver.org/lang/it/).
 
+## [0.6.0] — 2026-10-28 · Zoom tra le inquadrature e transizione personalizzata
+
+### Aspetto dei tagli in OBS (facoltativo, pagina Regia)
+- **Leggero zoom tra le inquadrature**:
+  - *passante*: la vecchia inquadratura stringe nell'ultimo mezzo beat, il taglio cade sul beat e la
+    nuova si assesta da +a% in un beat;
+  - *solo assestamento*: c'è solo la seconda parte;
+  - intensità 1–10%, consigliata 3–5%;
+  - in ogni scena viene ingrandita la camera (la sorgente più grande) attorno al suo centro, mai sotto la
+    sua dimensione: niente bordi neri, loghi e grafiche fermi;
+  - circa 50 aggiornamenti al secondo, su una connessione separata con solo quattro comandi;
+  - ogni scena torna esattamente com'era, anche dopo un crash (ripristino all'avvio successivo).
+- **Ogni tanto la tua transizione di OBS** (per esempio uno stinger):
+  - circa un taglio ogni N (25 di default), preferibilmente su un drop, una ripartenza o un inizio di
+    frase;
+  - il programma legge il punto in cui la transizione cambia l'immagine e la fa partire in anticipo, così
+    il cambio cade sul beat;
+  - viene scelta solo per quel taglio, poi torna la tua transizione abituale (sempre prima del taglio
+    successivo);
+  - mai sui gesti al mixer né sulle uscite d'emergenza.
+- **Nessun effetto in Shadow**: in modalità Shadow i tagli restano netti e OBS non viene toccato.
+- **Dashboard**: *Prossimo taglio* indica se arriverà con zoom o con la tua transizione.
+
+### Sicurezza
+- **Allow-list per connessione**: lo zoom ha la sua, limitata a impostazioni video, elementi delle scene
+  e loro trasformazione. Quella principale aggiunge solo lettura e scelta delle transizioni.
+- **Sempre vietato**: creare o eliminare scene, sorgenti e transizioni, toccare filtri e audio, avviare o
+  fermare uscite.
+
 ## [0.5.0] — 2026-10-28 · L'occhio lento ragiona da regista
 
 ### Occhio lento da regista

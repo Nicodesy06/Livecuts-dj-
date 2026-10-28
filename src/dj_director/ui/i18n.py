@@ -786,4 +786,25 @@ IT: dict[str, str] = {
     "One camera holds more than 85% of the time: check the weights and the coverage targets.":
         "Una camera occupa più dell'85% del tempo: controlla i pesi e gli obiettivi di copertura.",
     "No recurring problem found.": "Nessun problema ricorrente.",
+    # ---- cut look (0.6)
+    "How cuts look in OBS": "Aspetto dei tagli in OBS", "Light zoom between shots": "Leggero zoom tra le inquadrature",
+    "Zoom through: the old shot pushes in, the new one settles":
+        "Zoom passante: la vecchia inquadratura stringe, la nuova si assesta",
+    "Only the new shot settles": "Solo la nuova inquadratura si assesta",
+    "Now and then, my own OBS transition instead of a cut":
+        "Ogni tanto, la mia transizione di OBS al posto del taglio",
+    "Read from OBS": "Leggi da OBS", "about one cut in ": "circa un taglio ogni ",
+    "Prefer drops, re-entries and phrase starts": "Preferisci drop, ripartenze e inizi di frase",
+    "Zoom amount": "Intensità dello zoom", "Zoom style": "Tipo di zoom", "OBS transition": "Transizione di OBS",
+    "How often": "Ogni quanto",
+    "The zoom enlarges the camera in its OBS scene for a fraction of a second, about its centre and never below its "
+    "size, so no border shows; logos and overlays stay still and every scene is put back as it was. The custom "
+    "transition (e.g. a stinger) is selected only for that cut and started early so its change lands on the beat. "
+    "Shadow mode never touches OBS.":
+        "Lo zoom ingrandisce la camera nella sua scena OBS per una frazione di secondo, attorno al centro e mai sotto "
+        "la sua dimensione, quindi non si vedono bordi; loghi e grafiche restano fermi e ogni scena torna com'era. "
+        "La transizione personalizzata (per esempio uno stinger) viene scelta solo per quel taglio e partita in "
+        "anticipo, così il cambio cade sul beat. La modalità Shadow non tocca mai OBS.",
+    "No transitions read: is OBS connected?": "Nessuna transizione letta: OBS è collegato?",
+    "with zoom": "con zoom", "with your transition": "con la tua transizione",
 }

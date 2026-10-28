@@ -45,6 +45,9 @@ from dj_director.core.events import (AudioStatusEvent, DirectorAction, DirectorD
                                      SceneSwitchRequested)
 from dj_director.core.switching import AirtimeLedger, SwitchRecord, SwitchStatus, SwitchTracker
 from dj_director.diagnostics.logging_setup import DecisionLog, register_secret
+from dj_director.director.cut_style import CUT, SPECIAL, ZOOM, CutStyler
+from dj_director.obs.controller import TransitionInfo
+from dj_director.obs.motion import ZoomAnimator, zoom_timing
 from dj_director.review.journal import FrameJournal, frames_dir
 from dj_director.director.calibration import CalibrationRunner
 from dj_director.director.cameras import CameraRegistry
@@ -110,6 +113,7 @@ class AppSnapshot:
     program_quality: str = "UNKNOWN"   # HEALTHY / UNKNOWN / FAILED (+ issue in vision status)
     pending_plan: tuple = ()           # why / what / when / how long of the next planned cut
     pending_in: float = 0.0            # seconds until it fires
+    pending_style: str = ""            # cut / zoom / special (0.6)
     last_cancel: str = ""              # last cut the director refused / cancelled, with its reason
 
 
@@ -133,6 +137,16 @@ class AppController:
         self.decision_log = DecisionLog(enabled=self.config.log_decisions)
         self._journal: Optional[FrameJournal] = None
         self._journal_n = 0
+        # cut styles (0.6): light zoom and the occasional custom OBS transition
+        self.styler = CutStyler(self.config.transitions)
+        self.motion: Optional[ZoomAnimator] = None
+        self._special: Optional[TransitionInfo] = None
+        self._special_probing = ""
+        self._styles: dict[int, str] = {}           # correlation id -> cut style
+        self._prepared: dict[int, str] = {}         # incoming scene set to 1 + a, off air
+        self._pushed: dict[int, str] = {}           # outgoing scene pushing in before the cut
+        self._zoom_inflight: dict[int, tuple] = {}  # (incoming, outgoing) waiting for OBS
+        self._last_style = ""
         self.decisions: deque[DirectorDecisionEvent] = deque(maxlen=300)
         self.status = DirectorStatus.OFF
         self.message = ""
@@ -221,6 +235,7 @@ class AppController:
         if self.config.obs.auto_connect:
             self.obs.start()
             self.vision.start()
+        self._sync_motion()
         self._stop.clear()
         self._thread = threading.Thread(target=self._run, name="director", daemon=True)
         self._thread.start()
@@ -231,6 +246,8 @@ class AppController:
         if self._thread is not None:
             self._thread.join(timeout=2)
         self.vision.stop()
+        if self.motion is not None:
+            self.motion.stop()
         self.analysis.stop()
         self.audio.stop()
         self.obs.stop()
@@ -281,6 +298,86 @@ class AppController:
                 self.obs.reconnect_now()
             else:
                 self.obs.stop()
+        self.styler.cfg = cfg.transitions
+        self._special = None                    # re-read the custom transition before its next use
+        self._sync_motion(restart=reconnect_obs)
+
+    # ------------------------------------------------------------------ cut styles (0.6)
+    def _sync_motion(self, restart: bool = False) -> None:
+        """The zoom runs on its own OBS connection, only while the option is on."""
+        want = self.config.transitions.zoom and self.config.obs.auto_connect
+        if self.motion is not None and (not want or restart):
+            self.motion.stop()
+            self.motion = None
+        if want and self.motion is None:
+            o = self.config.obs
+            self.motion = ZoomAnimator(o.host, o.port, lambda: self.secrets.get(SECRET_KEY),
+                                       self.config_manager.path.parent / "zoom_restore.json")
+            self.motion.start()
+
+    def _probe_special(self) -> None:
+        """Read the custom transition's change point once (background: never blocks a cut)."""
+        t = self.config.transitions
+        if not (t.special and t.special_name) or not self.obs.connected:
+            return
+        if (self._special is not None and self._special.name == t.special_name) or self._special_probing:
+            return
+        self._special_probing = t.special_name
+
+        def run(name=t.special_name):
+            info = self.obs.probe_transition(name)
+            if info is not None and info.name == self.config.transitions.special_name:
+                self._special = info
+                log.info("custom transition %s: change after %.0f ms", name, info.point_ms)
+            self._special_probing = ""
+        threading.Thread(target=run, name="obs-transition-probe", daemon=True).start()
+
+    def _zoom_reset_all(self) -> None:
+        self._styles.clear()
+        self._prepared.clear()
+        self._pushed.clear()
+        self._zoom_inflight.clear()
+        if self.motion is not None:
+            self.motion.restore_all()
+
+    def _style_tick(self, now: float, d: DirectorDecisionEvent, snap) -> None:
+        """Choose the look of a scheduled cut, set the zoom up off air, push the outgoing shot in."""
+        t = self.config.transitions
+        p = self.engine.pending
+        if d.action == DirectorAction.SCHEDULE and d.correlation_id not in self._styles:
+            wait = p.fire_at - now if p is not None and p.correlation_id == d.correlation_id else 0.0
+            lead = self._special.lead if self._special is not None else None
+            style = self.styler.plan(d, wait, lead)
+            self._styles[d.correlation_id] = style
+            if style == SPECIAL:
+                self.engine.advance_pending(d.correlation_id, lead, now)
+            elif style == ZOOM and self.motion is not None:
+                self.motion.prepare(d.candidate_camera, t.zoom_amount)
+                self._prepared[d.correlation_id] = d.candidate_camera
+        period = snap.beat.period if snap is not None else 0.0
+        if (p is not None and self.motion is not None and t.zoom_style == "through"
+                and self._styles.get(p.correlation_id) == ZOOM and p.correlation_id not in self._pushed
+                and self.engine.current):
+            push, _ = zoom_timing(period)
+            left = p.fire_at - now
+            if left <= push:
+                if left >= 0.08:
+                    self.motion.push(self.engine.current, t.zoom_amount, left)
+                self._pushed[p.correlation_id] = self.engine.current
+        # a scheduled cut that was dropped: undo what was set up for it
+        live = p.correlation_id if p is not None else None
+        for cid, scene in list(self._prepared.items()):
+            if cid != live:
+                self._prepared.pop(cid)
+                if self.motion is not None and scene != self.engine.current:
+                    self.motion.reset(scene)
+        for cid, scene in list(self._pushed.items()):
+            if cid != live:
+                self._pushed.pop(cid)
+                if self.motion is not None:
+                    self.motion.settle(scene, 0.3)
+        for cid in [c for c in self._styles if c != live]:
+            self._styles.pop(cid)
 
     # ------------------------------------------------------------------ user commands
     def start_director(self, shadow: Optional[bool] = None) -> None:
@@ -359,6 +456,7 @@ class AppController:
                                  if warns else "starting")
             elif kind == "stop":
                 self.engine.pending = None
+                self._zoom_reset_all()
                 if self.calibration is not None:
                     self.calibration = None
                     self.save_config()            # keep the calibrated offset
@@ -370,6 +468,7 @@ class AppController:
             elif kind == "pause":
                 if self.status != DirectorStatus.OFF:
                     self.engine.pending = None
+                    self._zoom_reset_all()
                     self._set_status(DirectorStatus.PAUSED, "paused by user")
             elif kind == "resume":
                 if self.status in (DirectorStatus.PAUSED, DirectorStatus.ARMED, DirectorStatus.LIVE,
@@ -393,6 +492,7 @@ class AppController:
                 if self.status in (DirectorStatus.LIVE, DirectorStatus.ARMED, DirectorStatus.PAUSED):
                     # never let a queued cut overwrite what the operator just chose
                     self.obs.cancel_queued("manual change in OBS")
+                    self._zoom_reset_all()
                     if e.scene != self.engine.current:
                         d = self.engine.on_external_change(e.scene, now)
                         self._record(d)
@@ -412,6 +512,19 @@ class AppController:
                 ev = cmd[1]
                 self.decision_log.write(type(ev).__name__, ev)
                 info = self._inflight.pop(ev.correlation_id, None)
+                zi = self._zoom_inflight.pop(ev.correlation_id, None)
+                if zi is not None and self.motion is not None:
+                    incoming, outgoing = zi
+                    if isinstance(ev, SceneSwitchConfirmed):
+                        snap = self.analysis.latest()
+                        _, settle = zoom_timing(snap.beat.period if snap is not None else 0.0)
+                        self.motion.settle(incoming, settle)
+                        if outgoing:      # back to normal once off air (after the user's transition)
+                            self.motion.reset(outgoing, self.obs.transition_ms / 1000.0 + 0.1)
+                    else:
+                        self.motion.reset(incoming)
+                        if outgoing:
+                            self.motion.settle(outgoing, 0.3)
                 if isinstance(ev, SceneSwitchConfirmed):
                     self.switches.confirmed(ev.correlation_id, ev.t, ev.round_trip_ms)
                 elif isinstance(ev, SceneSwitchCancelled):
@@ -525,6 +638,9 @@ class AppController:
         self._record(d)
         if d.action == DirectorAction.SWITCH:
             self._execute(d, prev)
+        if not self.shadow:
+            self._probe_special()
+            self._style_tick(now, d, snap)
 
     def _tick_calibration(self) -> None:
         cal = self.calibration
@@ -549,11 +665,25 @@ class AppController:
             self.airtime.on_program(d.candidate_camera, d.t)      # Shadow: the decision is the "air"
             return
         scene = d.candidate_camera
+        style = self._styles.pop(d.correlation_id, None) or self.styler.plan(d, 0.0, None)
+        self._prepared.pop(d.correlation_id, None)
+        self._pushed.pop(d.correlation_id, None)
+        if style == SPECIAL and self._special is None:
+            style = CUT
+        self.styler.on_cut(style)
+        if style == ZOOM and self.motion is not None:
+            self._zoom_inflight[d.correlation_id] = (scene, previous)
         req = SceneSwitchRequested(time.monotonic(), scene, d.correlation_id)
         self.decision_log.write("SceneSwitchRequested", req)
+        if style != CUT:
+            self.decision_log.write("CutStyle", {"t": req.t, "correlation_id": d.correlation_id, "style": style,
+                                                 "transition": self._special.name if style == SPECIAL else ""})
+        self._last_style = style
         self._inflight[d.correlation_id] = (scene, previous)
         self.switches.request(d.correlation_id, scene, previous, req.t)
-        if not self.obs.switch_program(scene, d.correlation_id):
+        if not self.obs.switch_program(scene, d.correlation_id,
+                                       self._special if style == SPECIAL else None):
+            self._zoom_inflight.pop(d.correlation_id, None)
             self._inflight.pop(d.correlation_id, None)
             self.switches.failed(d.correlation_id, time.monotonic(), "OBS not ready or scene missing")
             self.engine.on_switch_failed(scene, previous, time.monotonic())
@@ -648,6 +778,7 @@ class AppController:
             program_quality=self.visual.quality(prog) if prog else "UNKNOWN",
             pending_plan=e.pending.plan if e.pending else (),
             pending_in=max(0.0, e.pending.fire_at - now) if e.pending else 0.0,
+            pending_style=self._styles.get(e.pending.correlation_id, "") if e.pending else "",
             last_cancel=self._last_cancel())
 
     def _coverage(self, now: float) -> tuple:

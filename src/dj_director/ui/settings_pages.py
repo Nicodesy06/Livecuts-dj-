@@ -657,6 +657,41 @@ class DirectorPage(QWidget):  # noqa: D101
         f.addRow(tr("Interface language (restart required)"), self.lang)
         v.addWidget(beh)
 
+        look = QGroupBox(tr("How cuts look in OBS"))
+        lf = QFormLayout(look)
+        self.zoom = QCheckBox(tr("Light zoom between shots"))
+        self.zoom_amount = QSpinBox(); self.zoom_amount.setRange(1, 10); self.zoom_amount.setSuffix(" %")
+        self.zoom_style = QComboBox()
+        self.zoom_style.addItem(tr("Zoom through: the old shot pushes in, the new one settles"), "through")
+        self.zoom_style.addItem(tr("Only the new shot settles"), "settle")
+        self.special = QCheckBox(tr("Now and then, my own OBS transition instead of a cut"))
+        trow = QHBoxLayout()
+        self.special_name = QComboBox()
+        self.special_name.setEditable(True)
+        self.special_name.setMinimumWidth(220)
+        self.btn_transitions = QPushButton(tr("Read from OBS"))
+        trow.addWidget(self.special_name, 1)
+        trow.addWidget(self.btn_transitions)
+        self.special_every = QSpinBox(); self.special_every.setRange(3, 200)
+        self.special_every.setPrefix(tr("about one cut in "))
+        self.special_moments = QCheckBox(tr("Prefer drops, re-entries and phrase starts"))
+        lf.addRow("", self.zoom)
+        lf.addRow(tr("Zoom amount"), self.zoom_amount)
+        lf.addRow(tr("Zoom style"), self.zoom_style)
+        lf.addRow("", self.special)
+        lf.addRow(tr("OBS transition"), trow)
+        lf.addRow(tr("How often"), self.special_every)
+        lf.addRow("", self.special_moments)
+        lf.addRow("", label(tr("The zoom enlarges the camera in its OBS scene for a fraction of a second, about its "
+                               "centre and never below its size, so no border shows; logos and overlays stay still "
+                               "and every scene is put back as it was. The custom transition (e.g. a stinger) is "
+                               "selected only for that cut and started early so its change lands on the beat. "
+                               "Shadow mode never touches OBS."), "Faint", wrap=True))
+        v.addWidget(look)
+        self._tworker = Worker()
+        self._tworker.done.connect(self._transitions_read)
+        self.btn_transitions.clicked.connect(self._read_transitions)
+
         cal = QGroupBox(tr("Sync calibration"))
         cg = QGridLayout(cal)
         cg.addWidget(label(tr("Play a track with a clear kick and watch the OBS program output (or record a short "
@@ -773,10 +808,35 @@ class DirectorPage(QWidget):  # noqa: D101
             combo.addItems(names)
             if len(names) > i:
                 combo.setCurrentIndex(i)
+        t = self.ctrl.config.transitions
+        self.zoom.setChecked(t.zoom)
+        self.zoom_amount.setValue(int(round(t.zoom_amount * 100)))
+        self.zoom_style.setCurrentIndex(max(0, self.zoom_style.findData(t.zoom_style)))
+        self.special.setChecked(t.special)
+        if self.special_name.findText(t.special_name) < 0 and t.special_name:
+            self.special_name.addItem(t.special_name)
+        self.special_name.setCurrentText(t.special_name)
+        self.special_every.setValue(t.special_every)
+        self.special_moments.setChecked(t.special_on_moments)
         self.cal_slider.blockSignals(True)
         self.cal_slider.setValue(int(d.latency_offset_ms))
         self.cal_slider.blockSignals(False)
         self.cal_value.setText(f"{d.latency_offset_ms:.0f} ms")
+
+    def _read_transitions(self) -> None:
+        self.btn_transitions.setEnabled(False)
+        self._tworker.run(self.ctrl.obs.transitions)
+
+    def _transitions_read(self, names, exc) -> None:
+        self.btn_transitions.setEnabled(True)
+        if exc is not None or not names:
+            QMessageBox.information(self, tr("OBS transition"), tr("No transitions read: is OBS connected?"))
+            return
+        cur = self.special_name.currentText()
+        self.special_name.clear()
+        self.special_name.addItems([n for n in names if n])
+        self.special_name.setCurrentText(cur if cur in names else next(
+            (n for n in names if n.lower() not in ("cut", "taglio", "fade", "dissolvenza")), names[0]))
 
     def _offset_moved(self, v: int) -> None:
         self.cal_value.setText(f"{v} ms")
@@ -827,6 +887,14 @@ class DirectorPage(QWidget):  # noqa: D101
             d.mixer_scene = ""
         else:
             d.mixer_scene = mix or ""
+        t = cfg.transitions
+        t.zoom = self.zoom.isChecked()
+        t.zoom_amount = self.zoom_amount.value() / 100.0
+        t.zoom_style = self.zoom_style.currentData()
+        t.special_name = self.special_name.currentText().strip()
+        t.special = self.special.isChecked() and bool(t.special_name)
+        t.special_every = self.special_every.value()
+        t.special_on_moments = self.special_moments.isChecked()
         self.ctrl.apply_config(cfg)
 
     def refresh(self, s: AppSnapshot) -> None:

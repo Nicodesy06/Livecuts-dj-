@@ -1,6 +1,6 @@
 # DJ Director AI — Guida all'utilizzo
 
-Versione 0.5.0 · Windows 10/11 (64 bit)
+Versione 0.6.0 · Windows 10/11 (64 bit)
 
 DJ Director AI è un regista automatico per i tuoi DJ set. Ascolta la musica che esce dal mixer, ne capisce
 l'andamento (tempo, beat, breakdown, drop) e cambia da solo le inquadrature in OBS Studio, come farebbe
@@ -281,7 +281,28 @@ Host, porta e password (salvata **cifrata** con la protezione di Windows), più 
   tra WIDE, BEHIND e SIDE, oppure quella suggerita dall'occhio lento. *Spenta* riporta il drop al Master.
 - **Inquadratura del mixer per i gesti del DJ**: la camera da mostrare quando togli i bassi, le alte o
   usi un filtro (vedi *I gesti del DJ* nel capitolo 11). *Automatica* usa la camera DETAIL (o OVERHEAD);
-  *Spenta* ignora i gesti. In *Avanzate* regoli quanto può durare al massimo (15–25 s, di default 20 s).
+  *Spenta* ignora i gesti. In *Avanzate* regoli quanto può durare al massimo (12–25 s, di default 14 s).
+- **Aspetto dei tagli in OBS** (dalla 0.6, tutto facoltativo):
+  - **Leggero zoom tra le inquadrature**. Con *Zoom passante* l'inquadratura che finisce stringe
+    leggermente (mezzo beat), il taglio cade sul beat e quella nuova parte un po' ingrandita e si assesta
+    in un beat. Con *Solo la nuova inquadratura si assesta* c'è solo la seconda parte. L'intensità va
+    dall'1 al 10% (consigliato 3–5%).
+    - Come funziona: in ogni scena camera il programma ingrandisce la sorgente più grande (la camera)
+      attorno al suo centro, mai sotto la sua dimensione, quindi non compaiono bordi neri. Loghi e
+      grafiche restano fermi.
+    - Ogni scena torna **esattamente** com'era. Se il programma si chiude a metà di uno zoom, la
+      sistema al riavvio.
+    - Non si applica ai tagli d'emergenza (camera diventata nera) né in modalità Shadow.
+  - **Ogni tanto, la mia transizione di OBS**. Premi **Leggi da OBS** e scegli la tua transizione (per
+    esempio uno stinger con il logo).
+    - *Ogni quanto*: circa un taglio ogni N, 25 di default. Con *Preferisci drop, ripartenze e inizi di
+      frase* la usa sul primo momento musicale importante dopo il 60% del conteggio, altrimenti al
+      raggiungimento del conteggio.
+    - Il programma legge quando la transizione cambia davvero l'immagine (il *punto di transizione* dello
+      stinger, metà durata per le dissolvenze) e la fa partire in anticipo, così il cambio cade sul beat.
+    - La sceglie solo per quel taglio e poi rimette la tua transizione abituale. Mai sui gesti al mixer,
+      che devono essere secchi.
+  - Nella Dashboard, *Prossimo taglio* indica se arriverà con zoom o con la tua transizione.
 - **Calibrazione della sincronizzazione**: vedi il capitolo 10.
 - **Avanzate**: tutti i parametri del motore. Tra questi:
   - soglia di taglio, scale delle durate, tagli massimi al minuto, attesa per i confini di frase;

@@ -144,6 +144,9 @@ def main() -> int:
                    CameraConfig("Cam Pubblico", role=CameraRole.WIDE)]
     cfg.vision.rois = {"Cam Mixer": [0.25, 0.45, 0.5, 0.5]}
     cfg.vision.rate = "high"
+    cfg.transitions.zoom = True
+    cfg.transitions.special = True
+    cfg.transitions.special_name = "Stinger DJ"
     ConfigManager().save(cfg)
 
     app = QApplication.instance() or QApplication(sys.argv)

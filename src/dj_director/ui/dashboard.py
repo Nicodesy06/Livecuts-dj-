@@ -11,6 +11,7 @@ from dj_director.core.controller import AppController, AppSnapshot, DirectorStat
 from dj_director.core.events import DirectorAction, MusicState
 from dj_director.ui import theme as T
 
+STYLE_LABEL = {"zoom": "with zoom", "special": "with your transition"}
 GESTURE_LABEL = {"eq_cut:low": "DJ: lows cut on the mixer", "eq_cut:high": "DJ: highs cut on the mixer",
                  "filter:low": "DJ: high-pass filter", "filter:high": "DJ: low-pass filter"}
 from dj_director.ui.widgets import Bar, Card, CameraTile, Dot, LevelMeter, StatusPill, label
@@ -182,6 +183,8 @@ class DashboardPage(QWidget):
         if s.pending_target:
             plan = dict(s.pending_plan)
             nxt = f"{s.pending_target} · {tr('in {0:.1f} s').format(s.pending_in)}"
+            if s.pending_style in STYLE_LABEL:
+                nxt += " · " + tr(STYLE_LABEL[s.pending_style])
             if plan.get("why"):
                 nxt += f" · {tr_reason(plan['why'])}"
             d["next"].setText(nxt)

@@ -34,6 +34,8 @@ CLOSE_UNSUPPORTED_RPC_VERSION = 4010
 # the client, which guarantees we never create/delete scenes, touch filters,
 # audio, profiles, or start/stop outputs. GetSourceScreenshot (0.2, scene
 # awareness) is read-only: it renders a small still of a scene and changes nothing.
+# Transitions (0.6): the occasional custom transition is selected just before a
+# cut and the previous one is put back right after; nothing is created or edited.
 ALLOWED_REQUESTS = frozenset({
     "GetVersion",
     "GetSceneList",
@@ -41,6 +43,20 @@ ALLOWED_REQUESTS = frozenset({
     "GetSceneCollectionList",
     "SetCurrentProgramScene",
     "GetSourceScreenshot",
+    "GetSceneTransitionList",
+    "GetCurrentSceneTransition",
+    "SetCurrentSceneTransition",
+    "GetVideoSettings",
+})
+
+# The zoom between shots (0.6, opt-in) runs on its own connection limited to
+# these: it reads the camera's scene item and changes only its position / scale
+# for a fraction of a second, always restoring the transform it found.
+MOTION_REQUESTS = frozenset({
+    "GetVideoSettings",
+    "GetSceneItemList",
+    "GetSceneItemTransform",
+    "SetSceneItemTransform",
 })
 
 

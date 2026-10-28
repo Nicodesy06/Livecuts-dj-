@@ -50,8 +50,10 @@ class _Pending:
 class ObsClient:
     def __init__(self, on_event: Callable[[str, dict], None] | None = None,
                  on_disconnect: Callable[[str], None] | None = None,
-                 event_subscriptions: int = P.EVENT_SUBSCRIPTIONS) -> None:
+                 event_subscriptions: int = P.EVENT_SUBSCRIPTIONS,
+                 allowed: frozenset = P.ALLOWED_REQUESTS) -> None:
         self.event_subscriptions = event_subscriptions
+        self.allowed = allowed
         self.on_event = on_event or (lambda t, d: None)
         self.on_disconnect = on_disconnect or (lambda reason: None)
         self._ws: Optional[websocket.WebSocket] = None
@@ -126,7 +128,7 @@ class ObsClient:
 
     # ------------------------------------------------------------------ requests
     def request(self, request_type: str, data: dict | None = None, timeout: float = 3.0) -> dict:
-        if request_type not in P.ALLOWED_REQUESTS:
+        if request_type not in self.allowed:
             raise ObsError(f"request {request_type!r} is not permitted by DJ Director")
         ws = self._ws
         if ws is None or not self.connected:

@@ -47,14 +47,14 @@ def test_dynamic_labels_translated():
     dynamic = ([v[0] for v in PARAM_LABELS.values()] + [n for _, n in METRIC_ROWS] + CamerasPage.COLS
                + list(KIND_LABEL.values()) + list(PRESET_DESCRIPTIONS.values()) + [h for h in _HINTS.values() if h]
                + ["Minimal", "Natural", "Dynamic", "connected", "connecting", "disconnected", "auth_failed"])
-    from dj_director.ui.dashboard import GESTURE_LABEL
+    from dj_director.ui.dashboard import GESTURE_LABEL, STYLE_LABEL
     from dj_director.ui.vision_page import ISSUE_LABELS, RATE_LABELS, VisionPage
     from dj_director.visual.providers import CLOUD_MODELS, LOCAL_MODELS
     dynamic += (VisionPage.COLS + list(RATE_LABELS.values()) + list(ISSUE_LABELS.values())
                 + [m.pros for m in LOCAL_MODELS + CLOUD_MODELS] + [m.cons for m in LOCAL_MODELS + CLOUD_MODELS]
                 + ["Off", "Local (offline, on this PC)", "Cloud (online, Claude API)", "Vision",
                    "MIDI inputs found but none could be opened (in use by another program?)."]
-                + list(GESTURE_LABEL.values()) + ["DJ at work on the mixer"])
+                + list(GESTURE_LABEL.values()) + ["DJ at work on the mixer"] + list(STYLE_LABEL.values()))
     assert [k for k in dynamic if k not in IT] == []
 
 

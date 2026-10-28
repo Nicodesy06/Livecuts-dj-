@@ -40,6 +40,18 @@ class FakeObsServer:
         self.collection = "Fake Collection"
         # GetSourceScreenshot: per-scene look of the synthetic still (see _screenshot)
         self.scene_look: dict[str, dict] = {}
+        # 0.6: one full-canvas camera item (+ a small logo) per scene; transitions
+        self.items: dict[str, list[dict]] = {}
+        self.transform_log: list[tuple[str, int, dict]] = []
+        self.transitions = [{"transitionName": "Cut", "transitionKind": "cut_transition", "transitionFixed": True},
+                            {"transitionName": "Fade", "transitionKind": "fade_transition",
+                             "transitionFixed": False},
+                            {"transitionName": "Stinger DJ", "transitionKind": "obs_stinger_transition",
+                             "transitionFixed": False}]
+        self.transition = "Cut"
+        self.transition_duration = 300
+        self.stinger_settings = {"path": "C:/stinger.webm", "transition_point": 450, "tp_type": 0}
+        self.program_transitions: list[tuple[str, str]] = []      # (scene, transition used)
         from dj_director.visual.imaging import warm_up
         warm_up()
         self._clients = set()
@@ -96,6 +108,23 @@ class FakeObsServer:
                 ws.close()
             except Exception:
                 pass
+
+    def scene_items(self, name: str) -> list[dict]:
+        if name not in self.items:
+            cam = {"sceneItemId": 1, "sourceName": f"{name} source", "sceneItemEnabled": True, "sceneItemIndex": 0,
+                   "sceneItemTransform": {"positionX": 0.0, "positionY": 0.0, "rotation": 0.0, "scaleX": 1.0,
+                                          "scaleY": 1.0, "alignment": 5, "boundsType": "OBS_BOUNDS_NONE",
+                                          "boundsWidth": 0.0, "boundsHeight": 0.0, "boundsAlignment": 0,
+                                          "sourceWidth": 1920.0, "sourceHeight": 1080.0, "width": 1920.0,
+                                          "height": 1080.0, "cropLeft": 0, "cropRight": 0, "cropTop": 0,
+                                          "cropBottom": 0}}
+            logo = {"sceneItemId": 2, "sourceName": "Logo", "sceneItemEnabled": True, "sceneItemIndex": 1,
+                    "sceneItemTransform": {"positionX": 1700.0, "positionY": 40.0, "rotation": 0.0, "scaleX": 1.0,
+                                           "scaleY": 1.0, "alignment": 5, "boundsType": "OBS_BOUNDS_NONE",
+                                           "sourceWidth": 180.0, "sourceHeight": 80.0, "width": 180.0,
+                                           "height": 80.0}}
+            self.items[name] = [cam, logo]
+        return self.items[name]
 
     def _uuid(self, name: str) -> str:
         return next((s["sceneUuid"] for s in self.scenes if s["sceneName"] == name), "")
@@ -159,7 +188,43 @@ class FakeObsServer:
                 ok, code, comment = False, 600, "No source was found"
             else:
                 self.program = name
+                self.program_transitions.append((name, self.transition))
                 self.broadcast("CurrentProgramSceneChanged", {"sceneName": name, "sceneUuid": self._uuid(name)})
+        elif rtype in ("GetSceneItemList", "GetSceneItemTransform", "SetSceneItemTransform"):
+            name = data.get("sceneName", "")
+            if not self._uuid(name):
+                ok, code, comment = False, 600, "No source was found"
+            elif rtype == "GetSceneItemList":
+                resp = {"sceneItems": json.loads(json.dumps(self.scene_items(name)))}
+            else:
+                it = next((i for i in self.scene_items(name) if i["sceneItemId"] == data.get("sceneItemId")), None)
+                if it is None:
+                    ok, code, comment = False, 600, "No scene item was found"
+                elif rtype == "GetSceneItemTransform":
+                    resp = {"sceneItemTransform": dict(it["sceneItemTransform"])}
+                else:
+                    t = it["sceneItemTransform"]
+                    t.update(data.get("sceneItemTransform") or {})
+                    t["width"] = t["sourceWidth"] * t["scaleX"]
+                    t["height"] = t["sourceHeight"] * t["scaleY"]
+                    self.transform_log.append((name, it["sceneItemId"], dict(data.get("sceneItemTransform") or {})))
+        elif rtype == "GetVideoSettings":
+            resp = {"fpsNumerator": 60, "fpsDenominator": 1, "baseWidth": 1920, "baseHeight": 1080,
+                    "outputWidth": 1920, "outputHeight": 1080}
+        elif rtype == "GetSceneTransitionList":
+            resp = {"currentSceneTransitionName": self.transition, "transitions": list(self.transitions)}
+        elif rtype == "GetCurrentSceneTransition":
+            tr = next(t for t in self.transitions if t["transitionName"] == self.transition)
+            resp = {"transitionName": tr["transitionName"], "transitionKind": tr["transitionKind"],
+                    "transitionFixed": tr["transitionFixed"],
+                    "transitionDuration": None if tr["transitionFixed"] else self.transition_duration,
+                    "transitionSettings": dict(self.stinger_settings)
+                    if tr["transitionKind"] == "obs_stinger_transition" else {}}
+        elif rtype == "SetCurrentSceneTransition":
+            if any(t["transitionName"] == data.get("transitionName") for t in self.transitions):
+                self.transition = data["transitionName"]
+            else:
+                ok, code, comment = False, 600, "No transition was found"
         elif rtype == "GetSourceScreenshot":
             name = data.get("sourceName", "")
             if not self._uuid(name):

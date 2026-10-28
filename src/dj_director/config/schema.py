@@ -168,6 +168,8 @@ _RANGES: dict[str, tuple[float, float]] = {
     "judge_interval": (3.0, 60.0),
     "judge_timeout": (2.0, 60.0),
     "ai_influence": (0.0, 2.0),
+    "zoom_amount": (0.01, 0.10),
+    "special_every": (3, 200),
 }
 
 VISION_RATES = ("low", "normal", "high")          # screenshot requests per second: 5 / 10 / 16
@@ -326,6 +328,21 @@ class VisionConfig:
     review_frames: bool = True        # keep two small stills per cut for the post-set review
 
 
+ZOOM_STYLES = ("through", "settle")
+
+
+@dataclass
+class TransitionsConfig:
+    """How cuts look in OBS (0.6). Both effects are opt-in."""
+    zoom: bool = False                # light zoom between shots (animates the camera's item in OBS)
+    zoom_amount: float = 0.04         # 4 %: outgoing shot pushes in, incoming one settles from +4 %
+    zoom_style: str = "through"       # "through" (out pushes in + in settles) | "settle" (incoming only)
+    special: bool = False             # now and then, the user's own OBS transition instead of a cut
+    special_name: str = ""            # an OBS transition (e.g. a stinger)
+    special_every: int = 25           # about one cut in N
+    special_on_moments: bool = True   # prefer drops, re-entries and phrase starts
+
+
 @dataclass
 class AppConfig:
     schema_version: int = 1
@@ -337,6 +354,7 @@ class AppConfig:
     director: DirectorConfig = field(default_factory=DirectorConfig)
     cameras: list[CameraConfig] = field(default_factory=list)
     vision: VisionConfig = field(default_factory=VisionConfig)
+    transitions: TransitionsConfig = field(default_factory=TransitionsConfig)
     log_decisions: bool = True
     ui_language: str = "auto"         # "auto" (system) | "it" | "en"
 
@@ -491,6 +509,9 @@ def _post_validate(inst: Any, issues: list[str], path: str) -> None:
         if not inst.ollama_url.startswith(("http://", "https://")):
             issues.append(f"{path}.ollama_url: invalid, reset")
             inst.ollama_url = "http://127.0.0.1:11434"
+    if isinstance(inst, TransitionsConfig) and inst.zoom_style not in ZOOM_STYLES:
+        issues.append(f"{path}.zoom_style: invalid, reset")
+        inst.zoom_style = "through"
     if isinstance(inst, AppConfig):
         if inst.ui_language not in ("auto", "it", "en"):
             issues.append("ui_language: invalid, reset")

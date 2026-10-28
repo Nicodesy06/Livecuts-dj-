@@ -305,6 +305,50 @@ Prima della diretta `config/framing.py` segnala:
 Gli avvisi compaiono nella pagina Camere e all'avvio della regia (mai bloccanti). Il controllo PTZ fisico
 non è incluso.
 
+## Aspetto dei tagli: zoom e transizione personalizzata (v0.6)
+
+Il motore decide **cosa** e **quando**. `director/cut_style.py` decide soltanto **come appare** il taglio,
+quando il taglio è programmato (`SCHEDULE`), in modo deterministico:
+
+| Stile | Quando |
+|---|---|
+| `special` (transizione dell'utente) | conteggio dei tagli dall'ultima ≥ N (`special_every`, 25) e cambio puntuale; oppure, con `special_on_moments`, dal 60% di N su un momento (rivelazione del drop, ripartenza, timing di frase); oppure a 1,5 × N anche se in ritardo. Mai su gesti al mixer o uscite d'emergenza |
+| `zoom` | gli altri tagli, se attivo e se il taglio è noto con almeno 0,12 s di anticipo |
+| `cut` | uscite d'emergenza (inquadratura inutilizzabile, hard cap), tagli immediati, opzioni spente |
+
+**Transizione personalizzata**:
+- al passaggio in LIVE `ObsController.probe_transition` legge tipo, durata e **punto di cambio** (stinger:
+  `transition_point`, in ms o in fotogrammi; altre transizioni: metà durata; Cut: 0). Per leggerli
+  seleziona la transizione per un istante e poi rimette quella di prima, tenendo il lock delle
+  transizioni: nessun taglio può avvenire nel frattempo;
+- il taglio programmato viene **anticipato** del punto di cambio (`engine.advance_pending`), così
+  l'immagine cambia sul beat;
+- sul thread dei comandi: `GetCurrentSceneTransition`, `SetCurrentSceneTransition(speciale)`,
+  `SetCurrentProgramScene`, poi la transizione precedente torna al suo posto alla fine (durata + 0,3 s)
+  e in ogni caso **prima del taglio successivo**.
+
+**Zoom** (`obs/motion.py`, connessione propria con soli `GetVideoSettings`, `GetSceneItemList`,
+`GetSceneItemTransform`, `SetSceneItemTransform`):
+- in ogni scena camera viene animata la sorgente visibile più grande e non ruotata; loghi e grafiche
+  restano fermi. La scala avviene attorno al centro dell'elemento, per qualsiasi allineamento, e con i
+  *bounds* se presenti (`P' = C + (P − C)·k`). k non scende mai sotto 1, quindi niente bordi;
+- *zoom passante*:
+  - appena il taglio è programmato, la scena entrante viene portata a `1 + a` mentre è ancora fuori onda;
+  - nell'ultimo mezzo beat (0,2–0,45 s) la scena uscente stringe da 1 a `1 + a` con curva accelerata;
+  - alla conferma del taglio la scena entrante si assesta a 1 in un beat (0,35–0,9 s) con curva
+    decelerata;
+  - la scena uscente torna esattamente com'era una volta fuori onda, dopo l'eventuale transizione
+    abituale;
+- l'animazione invia circa 50 aggiornamenti al secondo, calcolati sul tempo reale;
+- un taglio annullato riporta tutto a 1;
+- cambi manuali, pausa e stop ripristinano tutte le scene;
+- prima di toccare un elemento la sua trasformazione originale viene scritta in `zoom_restore.json`;
+  al riavvio successivo, se il file c'è (crash, connessione persa), le scene vengono ripristinate;
+- Shadow non invia nulla.
+
+Limite: lo zoom passa da obs-websocket, quindi la sua fluidità dipende dal carico di OBS. Va verificato
+con OBS reale e in registrazione.
+
 ## Consapevolezza della scena (v0.2)
 
 Codice: `src/dj_director/visual/`. Le immagini arrivano da OBS (`GetSourceScreenshot`, una richiesta di

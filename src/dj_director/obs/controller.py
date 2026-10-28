@@ -12,6 +12,10 @@
 * Manual override detection: every program change we request is remembered
   for a short window; a ``CurrentProgramSceneChanged`` event that does not
   match is reported as an external (manual) change.
+* Custom transition (0.6): a cut may carry an OBS transition (e.g. a stinger).
+  It is selected right before that one cut and the transition that was
+  current is put back as soon as it has finished (and in any case before the
+  next cut), all on the command thread so no other cut can use it by mistake.
 * Request lifecycle (0.4): a queued command replaced by a newer one, or
   dropped because of a manual change / stop, is reported as
   ``SceneSwitchCancelled``. After a timeout the request stays "expected" for
@@ -45,6 +49,36 @@ class SceneInfo:
     uuid: str = ""
 
 
+@dataclass(frozen=True)
+class TransitionInfo:
+    """An OBS transition and when, after the command, the picture actually changes."""
+    name: str
+    kind: str = ""
+    duration_ms: float = 0.0
+    point_ms: float = 0.0          # stinger: its transition point; fades & co: half the duration
+
+    @property
+    def lead(self) -> float:
+        return self.point_ms / 1000.0
+
+
+def transition_info(cur: dict, fps: float = 60.0) -> TransitionInfo:
+    """TransitionInfo from a GetCurrentSceneTransition answer."""
+    name = cur.get("transitionName", "") or ""
+    kind = cur.get("transitionKind", "") or ""
+    dur = cur.get("transitionDuration")
+    dur = float(dur) if isinstance(dur, (int, float)) else 300.0
+    settings = cur.get("transitionSettings") or {}
+    if kind == "cut_transition":
+        return TransitionInfo(name, kind, 0.0, 0.0)
+    if kind == "obs_stinger_transition":
+        tp = float(settings.get("transition_point", 0) or 0)
+        if int(settings.get("tp_type", 0) or 0) == 1:          # given in frames
+            tp = tp * 1000.0 / max(fps, 1.0)
+        return TransitionInfo(name, kind, dur, tp)
+    return TransitionInfo(name, kind, dur, dur / 2.0)
+
+
 class ObsController:
     def __init__(self, cfg: ObsConfig, password_provider: Callable[[], str]) -> None:
         self.cfg = cfg
@@ -72,7 +106,11 @@ class ObsController:
         self._stop = threading.Event()
         self._supervisor: Optional[threading.Thread] = None
         self._cmd_lock = threading.Condition()
-        self._cmd: Optional[tuple[str, int, float]] = None
+        self._cmd: Optional[tuple] = None              # (scene, correlation id, queued at, transition)
+        self._transition_lock = threading.RLock()     # a special transition is current only for its cut
+        self._restore_transition: Optional[tuple[str, float]] = None   # (name to put back, due)
+        self.transition = ""                           # the user's current transition and its duration
+        self.transition_ms = 0.0
         self._cmd_thread: Optional[threading.Thread] = None
         self.last_round_trip_ms = 0.0
         self._last_poll = 0.0
@@ -98,6 +136,8 @@ class ObsController:
             self._cmd_lock.notify_all()
         if old is not None:
             self.on_switch_result(SceneSwitchCancelled(time.monotonic(), old[0], old[1], "OBS connection stopped"))
+        with self._transition_lock:
+            self._put_back_transition(force=True)
         self.client.close()
         for t in (self._supervisor, self._cmd_thread):
             if t is not None:
@@ -173,6 +213,7 @@ class ObsController:
             log.debug("program poll failed: %s", e)
             return
         name = lst.get("currentProgramSceneName", "") or ""
+        self._read_transition()
         with self._lock:
             changed = bool(name) and name != self.program and self.scenes_valid
         if changed:
@@ -200,6 +241,7 @@ class ObsController:
             self.studio_mode = bool(studio.get("studioModeEnabled", False))
             self.collection = coll
             self.scenes_valid = True
+        self._read_transition()
         self.on_scenes_changed(list(scenes))
 
     # ------------------------------------------------------------------ events (reader thread)
@@ -284,13 +326,14 @@ class ObsController:
     def can_switch(self) -> bool:
         return self.connected and self.scenes_valid
 
-    def switch_program(self, scene: str, correlation_id: int) -> bool:
-        """Queue a Program scene change. Returns False if it cannot be attempted now."""
+    def switch_program(self, scene: str, correlation_id: int,
+                       transition: Optional[TransitionInfo] = None) -> bool:
+        """Queue a Program scene change, optionally through a given transition. False if not possible now."""
         if not self.can_switch() or not self.scene_exists(scene):
             return False
         with self._cmd_lock:
             old = self._cmd
-            self._cmd = (scene, correlation_id, time.monotonic())
+            self._cmd = (scene, correlation_id, time.monotonic(), transition)
             self._cmd_lock.notify_all()
         if old is not None:
             self.on_switch_result(SceneSwitchCancelled(time.monotonic(), old[0], old[1],
@@ -304,37 +347,123 @@ class ObsController:
         if old is not None:
             self.on_switch_result(SceneSwitchCancelled(time.monotonic(), old[0], old[1], reason))
 
+    # ------------------------------------------------------------------ transitions
+    def transitions(self) -> list[str]:
+        """Names of the transitions in OBS (for the settings page)."""
+        try:
+            lst = self.client.request("GetSceneTransitionList", timeout=self.cfg.request_timeout)
+        except Exception as e:
+            log.debug("transition list failed: %s", e)
+            return []
+        return [t.get("transitionName", "") for t in lst.get("transitions", []) if t.get("transitionName")]
+
+    def probe_transition(self, name: str) -> Optional[TransitionInfo]:
+        """Kind, duration and change point of a transition: selected for a moment, then put back.
+
+        Holds the transition lock, so no cut can happen while it is selected.
+        """
+        if not name or not self.connected:
+            return None
+        t = self.cfg.request_timeout
+        with self._transition_lock:
+            try:
+                cur = self.client.request("GetCurrentSceneTransition", timeout=t)
+                prev = cur.get("transitionName", "")
+                if prev != name:
+                    self.client.request("SetCurrentSceneTransition", {"transitionName": name}, timeout=t)
+                    cur = self.client.request("GetCurrentSceneTransition", timeout=t)
+                    self.client.request("SetCurrentSceneTransition", {"transitionName": prev}, timeout=t)
+                fps = 60.0
+                try:
+                    v = self.client.request("GetVideoSettings", timeout=t)
+                    fps = float(v.get("fpsNumerator", 60)) / max(float(v.get("fpsDenominator", 1)), 1.0)
+                except Exception:
+                    pass
+                return transition_info(cur, fps)
+            except Exception as e:
+                log.warning("cannot read transition %r: %s", name, e)
+                return None
+
+    def _read_transition(self) -> None:
+        try:
+            cur = self.client.request("GetCurrentSceneTransition", timeout=self.cfg.request_timeout)
+        except Exception:
+            return
+        with self._lock:
+            if self._restore_transition is None:          # not while our special one is selected
+                self.transition = cur.get("transitionName", "") or ""
+                d = cur.get("transitionDuration")
+                self.transition_ms = 0.0 if cur.get("transitionKind") == "cut_transition" else (
+                    float(d) if isinstance(d, (int, float)) else 300.0)
+
+    def _put_back_transition(self, force: bool = False) -> None:
+        r = self._restore_transition
+        if r is None or (not force and time.monotonic() < r[1]):
+            return
+        self._restore_transition = None
+        try:
+            self.client.request("SetCurrentSceneTransition", {"transitionName": r[0]},
+                                timeout=self.cfg.request_timeout)
+        except Exception as e:
+            log.warning("could not put back transition %r: %s", r[0], e)
+
     def _command_loop(self) -> None:
         while not self._stop.is_set():
             with self._cmd_lock:
                 while self._cmd is None and not self._stop.is_set():
-                    self._cmd_lock.wait(0.5)
+                    r = self._restore_transition
+                    wait = 0.5 if r is None else min(0.5, max(0.01, r[1] - time.monotonic()))
+                    self._cmd_lock.wait(wait)
+                    if self._cmd is None and r is not None and time.monotonic() >= r[1]:
+                        break
                 if self._stop.is_set():
+                    with self._transition_lock:
+                        self._put_back_transition(force=True)
                     return
-                scene, cid, queued = self._cmd
-                self._cmd = None
+                cmd, self._cmd = self._cmd, None
+            if cmd is None:
+                with self._transition_lock:
+                    self._put_back_transition()
+                continue
+            scene, cid, queued, transition = cmd
             if time.monotonic() - queued > 2.0:
                 self.on_switch_result(SceneSwitchFailed(time.monotonic(), scene, cid, "command expired"))
                 continue
-            with self._lock:
-                uuid = next((s.uuid for s in self.scenes if s.name == scene), "")
-                self._expected.append((scene, time.monotonic()))
-            data = {"sceneUuid": uuid} if uuid else {"sceneName": scene}
-            t0 = time.perf_counter()
+            with self._transition_lock:
+                self._switch(scene, cid, transition)
+
+    def _switch(self, scene: str, cid: int, transition: Optional[TransitionInfo]) -> None:
+        self._put_back_transition(force=True)            # never let a normal cut use a special transition
+        if transition is not None:
             try:
-                self.client.request("SetCurrentProgramScene", data, timeout=self.cfg.request_timeout)
-                rt = (time.perf_counter() - t0) * 1000
-                self.last_round_trip_ms = rt
-                self.on_switch_result(SceneSwitchConfirmed(time.monotonic(), scene, cid, rt))
-            except TimeoutError as e:
-                # OBS may still apply it: keep it "expected" so a late change is not taken for the operator
-                log.warning("scene switch to %s timed out: %s", scene, e)
-                self.on_switch_result(SceneSwitchFailed(time.monotonic(), scene, cid, f"timed out: {e}"))
+                prev = self.client.request("GetCurrentSceneTransition",
+                                           timeout=self.cfg.request_timeout).get("transitionName", "")
+                if prev and prev != transition.name:
+                    self._restore_transition = (prev, float("inf"))      # before: the poll must not adopt it
+                    self.client.request("SetCurrentSceneTransition", {"transitionName": transition.name},
+                                        timeout=self.cfg.request_timeout)
+                    self._restore_transition = (prev, time.monotonic() + transition.duration_ms / 1000.0 + 0.3)
             except Exception as e:
-                with self._lock:
-                    self._expected = [(n, t) for n, t in self._expected if n != scene]
-                log.warning("scene switch to %s failed: %s", scene, e)
-                self.on_switch_result(SceneSwitchFailed(time.monotonic(), scene, cid, str(e)))
+                log.warning("custom transition %r not used: %s", transition.name, e)
+        with self._lock:
+            uuid = next((s.uuid for s in self.scenes if s.name == scene), "")
+            self._expected.append((scene, time.monotonic()))
+        data = {"sceneUuid": uuid} if uuid else {"sceneName": scene}
+        t0 = time.perf_counter()
+        try:
+            self.client.request("SetCurrentProgramScene", data, timeout=self.cfg.request_timeout)
+            rt = (time.perf_counter() - t0) * 1000
+            self.last_round_trip_ms = rt
+            self.on_switch_result(SceneSwitchConfirmed(time.monotonic(), scene, cid, rt))
+        except TimeoutError as e:
+            # OBS may still apply it: keep it "expected" so a late change is not taken for the operator
+            log.warning("scene switch to %s timed out: %s", scene, e)
+            self.on_switch_result(SceneSwitchFailed(time.monotonic(), scene, cid, f"timed out: {e}"))
+        except Exception as e:
+            with self._lock:
+                self._expected = [(n, t) for n, t in self._expected if n != scene]
+            log.warning("scene switch to %s failed: %s", scene, e)
+            self.on_switch_result(SceneSwitchFailed(time.monotonic(), scene, cid, str(e)))
 
     # ------------------------------------------------------------------ one-shot test (wizard)
     @staticmethod

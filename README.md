@@ -239,6 +239,11 @@ gesti del DJ**: una qualsiasi delle tue scene, automatica oppure spenta.
   non si scavalcano.
 - **Revisione post-serata**: dopo il set, l'AI rivede ogni taglio dalle immagini salvate (prima / dopo)
   e un report indica cosa regolare.
+- **Aspetto dei tagli** (facoltativo, pagina Regia):
+  - un **leggero zoom** tra le inquadrature: la vecchia stringe, il taglio cade sul beat, la nuova si
+    assesta;
+  - ogni tanto, per esempio circa una volta ogni 25 tagli e preferibilmente su un drop, la **tua
+    transizione di OBS** (per esempio uno stinger), partita in anticipo perché il cambio cada sul beat.
 
 <img src="docs/images/visione-ai.png" alt="Scelta del modello AI locale con pro e contro" width="900">
 
@@ -314,10 +319,18 @@ Altri casi nella [guida completa](docs/GUIDA_UTENTE.md#12-risoluzione-dei-proble
   all'API Claude.
 - Il programma comunica con OBS sull'indirizzo configurato (di default `127.0.0.1`), con Ollama sul PC
   (`127.0.0.1:11434`) se usi il modello locale e con l'API Claude solo se scegli il cloud.
-- In OBS usa solo sei comandi: lettura di versione, elenco scene, collezione di scene, stato dello
-  Studio Mode e istantanea di una scena (sola lettura), più il cambio della scena Program.
-  **Non** crea, elimina o modifica scene, sorgenti, filtri o audio e **non** avvia né ferma registrazione
-  o streaming. Lo garantisce un elenco di comandi consentiti nel codice, verificato dai test.
+- In OBS usa pochi comandi:
+  - in lettura: versione, elenco scene, collezione di scene, stato dello Studio Mode, istantanea di una
+    scena, elenco e dati delle transizioni, impostazioni video;
+  - il cambio della scena Program;
+  - solo se attivi le opzioni della 0.6: la scelta della tua transizione per un singolo taglio (poi
+    rimette quella di prima) e, per lo zoom, posizione e scala della camera nella sua scena per una
+    frazione di secondo, rimesse sempre come le aveva trovate. Lo zoom usa una connessione separata con
+    solo i quattro comandi che gli servono.
+
+  **Non** crea né elimina scene, sorgenti o transizioni, **non** tocca filtri, audio o impostazioni e
+  **non** avvia né ferma registrazione o streaming. Lo garantisce un elenco di comandi consentiti nel
+  codice, verificato dai test.
 - La password di OBS e la chiave API Claude sono cifrate con Windows DPAPI e non compaiono mai in
   configurazione o nei log.
 
@@ -329,7 +342,7 @@ Altri casi nella [guida completa](docs/GUIDA_UTENTE.md#12-risoluzione-dei-proble
 git clone https://github.com/Nicodesy06/Livecuts-dj-.git && cd Livecuts-dj-
 python -m venv .venv && . .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements-lock.txt && pip install -e ".[dev]"
-QT_QPA_PLATFORM=offscreen pytest                     # 250+ test: unit, integrazione, GUI, qualità
+QT_QPA_PLATFORM=offscreen pytest                     # 270+ test: unit, integrazione, GUI, qualità
 python -m dj_director                                # avvia l'interfaccia
 ```
 
@@ -347,7 +360,7 @@ dj-director review [decisions-….jsonl] --ai local               # revisione po
 **Build Windows**: `powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1` (test, PyInstaller,
 self-test degli eseguibili, guida PDF, zip). La CI (`.github/workflows/build-windows.yml`) fa lo stesso su
 ogni push. Per pubblicare una release: *Actions › test-and-build-windows › Run workflow* con
-`release_tag` (es. `v0.5.0`). Confronto prima/dopo con una release precedente sullo stesso materiale:
+`release_tag` (es. `v0.6.0`). Confronto prima/dopo con una release precedente sullo stesso materiale:
 `python scripts/compare_engines.py [set.wav] --before v0.3.0`.
 
 **Struttura**

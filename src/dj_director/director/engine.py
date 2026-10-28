@@ -309,6 +309,12 @@ class DirectorEngine:
         if self.cut_times:
             self.cut_times.pop()
 
+    def advance_pending(self, correlation_id: int, seconds: float, now: float) -> None:
+        """Send a scheduled cut earlier (a transition whose picture changes only after ``seconds``)."""
+        p = self.pending
+        if p is not None and p.correlation_id == correlation_id and seconds > 0:
+            p.fire_at = max(now, p.fire_at - seconds)
+
     def on_switch_confirmed(self, scene: str, t: float) -> None:
         """OBS confirmed ``scene`` in Program at ``t``: exposure statistics use the real on-air time.
 

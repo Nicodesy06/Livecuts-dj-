@@ -43,8 +43,9 @@
 | `music/` | Feature spettrali, beat tracker causale, stati musicali, pipeline pura e worker live |
 | `director/` | Camera registry (ruoli, metadati, disponibilità, ancora), Director Engine, `shot_planner` (WHAT / HOW LONG / piano spiegato), `continuity` (jump cut, asse, crop come scala, ripetizioni), calibrazione dell'offset |
 | `config/framing.py` | Controlli pre-diretta su metadati e crop digitali |
-| `obs/` | Protocollo, client WebSocket con allow-list, controller (supervisione, eventi, comandi), finto server per test e demo |
+| `obs/` | Protocollo, client WebSocket con allow-list (una per connessione), controller (supervisione, eventi, comandi, transizione personalizzata per un solo taglio), `motion` (v0.6: zoom tra le inquadrature su una connessione separata, con ripristino anche dopo un crash), finto server per test e demo |
 | `simulation/` | Generatore sintetico con ground truth, replay offline, metriche editoriali, baseline timer e casuale |
+| `director/cut_style.py` | Aspetto di ogni taglio (v0.6): taglio netto, zoom o transizione personalizzata ogni N tagli, preferibilmente sui momenti musicali; deterministico |
 | `review/` | Revisione post-serata (v0.5): `journal` (due immagini per taglio accanto al log delle decisioni, su un thread separato), `critic` (lettura della sessione, numeri e controlli senza AI, critica dell'AI a gruppi di 6 tagli con schema JSON, suggerimenti deterministici, report HTML) |
 | `visual/` | Visione (v0.2): `frames` (istantanee da OBS), `fast` (occhio veloce: qualità, movimento, battito), `judge` + `providers` (occhio lento: Ollama locale o API Claude), `imaging` (codec e mosaico con Qt), `vision` (servizio che li unisce per l'engine) |
 | `sensors/` | Sonda MIDI (Windows, winmm): verifica se l'hardware DJ invia messaggi al PC |
