@@ -532,7 +532,7 @@ class DirectorEngine:
                                   f"minimum shot length not reached ({tos:.0f}/{sp.min:.0f}s)", 1.0, state)
         cov = self.coverage(now)
         targets = self.coverage_targets()
-        dwell = self._master_dwell(sp, cov, targets)
+        dwell = self._master_dwell(sp, cov, targets, state)
         trig, trig_ev = self._music_trigger()
         vis_ev = self._best_visual_event(now)
         vis = vis_ev.strength if vis_ev is not None else 0.0
@@ -546,6 +546,8 @@ class DirectorEngine:
                 editorial *= 0.5
             if state == MusicState.UNCERTAIN:
                 editorial *= 0.8
+            if state == MusicState.SPARSE and self.p.contextual_grammar:
+                editorial *= 0.7                    # breakdown: let it breathe, fewer unmotivated cuts
         early = tos < sp.pref_min
         burst = max(trig, vis)
         # Between the master minimum and its preferred dwell only a strong musical or
@@ -577,8 +579,8 @@ class DirectorEngine:
         rc = self.reveal_camera()
         if (trig_ev is not None and trig_ev.kind in DROP_EVENTS and trig >= vis
                 and self._reveal_ok(now, rc, cur) and rc.allows(state.value)):
-            # drop grammar: open on the reveal shot, on the next beat
-            timing, target_t = self._timing(now, snap, urgent=True)
+            # drop grammar: open on the reveal shot, on the next beat - but never late
+            timing, target_t = self._drop_timing(now, snap)
             reason = (f"entry: drop reveal on {rc.name} ({trig_ev.confidence:.2f}); "
                       f"{self.class_of(rc)} coverage {cov.get(self.class_of(rc), 0) * 100:.0f}%/"
                       f"{targets.get(self.class_of(rc), 0) * 100:.0f}%")
@@ -623,8 +625,8 @@ class DirectorEngine:
         return self._commit(now, best.name, "; ".join(reasons), confidence, opportunity, state, timing,
                             target_t, scores, kind="entry", trigger=trigger, music=trigger == "musical")
 
-    def _master_dwell(self, sp: ShotSpec, cov: dict, targets: dict) -> float:
-        return self.planner.how_long_master(sp, cov, targets)
+    def _master_dwell(self, sp: ShotSpec, cov: dict, targets: dict, state: Optional[MusicState] = None) -> float:
+        return self.planner.how_long_master(sp, cov, targets, state)
 
     def _rank_inserts(self, now: float, cur: Camera, state: MusicState, cov: dict, targets: dict,
                       vis_ev: Optional[VisualEvent], ignore_cooldown: bool = False, gesture: bool = False
@@ -656,7 +658,7 @@ class DirectorEngine:
         rc = self.reveal_camera()
         if (trig_ev is not None and trig_ev.kind in DROP_EVENTS and tos >= sp.min
                 and self._reveal_ok(now, rc, cur) and rc.allows(state.value)):
-            timing, target_t = self._timing(now, snap, urgent=True, deadline=deadline)
+            timing, target_t = self._drop_timing(now, snap, deadline=deadline)
             return self._commit(now, rc.name, f"exit: drop reveal on {rc.name} ({trig_ev.confidence:.2f})",
                                 max(0.6, trig_ev.confidence), trig, state, timing, target_t, (),
                                 kind="exit", trigger="musical", music=True, deadline=deadline)
@@ -689,6 +691,9 @@ class DirectorEngine:
                 if now - self._gesture_off_since >= 2.0:
                     planned = min(planned, max(tos, 6.0))
         continuity = self._continuity(now, cur, state, snap)
+        if not continuity and state == MusicState.SPARSE and self.p.contextual_grammar and (
+                self.planner._context(cur, state, None, 0.0) > 0):
+            continuity = "breakdown atmosphere"           # let the atmosphere / performer shot breathe
         if continuity and not self._mix_shot:
             planned = max(planned, sp.pref_max)
         if gesture_note:
@@ -874,6 +879,13 @@ class DirectorEngine:
     def _rate_ok(self, now: float) -> bool:
         recent = sum(1 for t in self.cut_times if now - t < 60.0)
         return recent < self.p.max_cuts_per_minute
+
+    def _drop_timing(self, now: float, snap, deadline: float = math.inf) -> tuple[TimingMode, float]:
+        """A drop is already happening: take the next beat only if it is close, otherwise cut now."""
+        timing, t = self._timing(now, snap, urgent=True, deadline=deadline)
+        if snap is not None and snap.beat.period > 0 and t - now > 0.5 * snap.beat.period:
+            return TimingMode.IMMEDIATE, now
+        return timing, t
 
     # ------------------------------------------------------------------ musical timing
     def _set_phrase_anchor(self, t: float, snap: Optional[MusicSnapshot]) -> None:

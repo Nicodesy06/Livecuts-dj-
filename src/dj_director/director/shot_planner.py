@@ -176,11 +176,19 @@ class ShotPlanner:
         return v
 
     # ------------------------------------------------------------------ HOW LONG
-    def how_long_master(self, sp: "ShotSpec", cov: dict, targets: dict) -> float:
-        """Planned master dwell, pulled shorter when the master is over budget and longer when under."""
+    def how_long_master(self, sp: "ShotSpec", cov: dict, targets: dict,
+                        state: Optional[MusicState] = None) -> float:
+        """Planned master dwell, pulled shorter when the master is over budget and longer when under.
+
+        In a breakdown the master breathes longer (x1.3, still inside its preferred window) and the
+        budget may not shorten it.
+        """
         e = self.e
         over = cov.get(COVER_MASTER, 0.0) - targets.get(COVER_MASTER, 0.7)
         factor = min(1.5, max(0.5, 1.0 - e.p.coverage_gain * over * 8.0))
+        if state == MusicState.SPARSE and e.p.contextual_grammar:
+            # the budget never shortens a breakdown master: no cut just to fix a percentage
+            factor = max(factor, 1.0) * 1.3
         return min(max(e.shot_target * factor, sp.pref_min), sp.pref_max)
 
     def how_long_insert(self, sp: "ShotSpec", cov: dict, targets: dict) -> float:

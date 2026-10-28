@@ -312,7 +312,9 @@ def test_drop_opens_on_the_reveal_shot_on_the_beat():
     ds = _drop_on_master(e)
     sw = switches(ds)
     assert sw and sw[0].candidate_camera == "B" and sw[0].reason.startswith("entry: drop reveal on B")
-    assert sw[0].timing in (TimingMode.BEAT, TimingMode.DOWNBEAT)
+    # on the next beat when it is close, at once otherwise: a drop cut is never late
+    assert sw[0].timing in (TimingMode.BEAT, TimingMode.DOWNBEAT, TimingMode.IMMEDIATE)
+    assert sw[0].t - 14.0 <= 0.5 * PERIOD + 0.06
 
 
 def test_drop_reveal_uses_the_chosen_scene():

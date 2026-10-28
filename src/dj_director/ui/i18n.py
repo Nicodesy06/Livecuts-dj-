@@ -125,6 +125,7 @@ _REASONS_IT: list[tuple[str, object]] = [
                                                f"({m.group(2)})"),
     (r"to the mixer (.+)", r"verso il mixer \1"),
     (r"continuity: DJ at work on the mixer", "continuità: il DJ lavora sul mixer"),
+    (r"continuity: breakdown atmosphere", "continuità: atmosfera del breakdown"),
     (r"exit: drop reveal on (.+) \(([\d.]+)\)", r"uscita: rivelazione sul drop su \1 (\2)"),
     (r"entry: master shot unusable \((.+)\)", lambda m: f"ingresso: master non utilizzabile ({_issue_it(m.group(1))})"),
     (r"exit: shot unusable \((.+)\)", lambda m: f"uscita: inquadratura non utilizzabile ({_issue_it(m.group(1))})"),
