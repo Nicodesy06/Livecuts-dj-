@@ -16,6 +16,15 @@ For each camera, every new frame updates:
 
 Everything is measured, nothing is guessed: hand movement is "movement in the
 mixer region", not "EQ adjustment".
+
+Quality gate (0.4): each camera is HEALTHY (fresh frames, warmed up, no
+problem), FAILED (a persisting problem) or UNKNOWN (no picture, stale, still
+learning). UNKNOWN is never read as "good". Club lighting is accounted for:
+"black" means an empty picture (dark *and* flat), sharpness is measured
+relative to contrast (a dark moment is not a blur), a strobe changes brightness
+but does not move the picture. Extra problems: the camera itself moving
+(repositioning: the whole image shifts consistently) and, with a region of
+interest, the region alone losing its detail ("mixer not visible").
 """
 
 from __future__ import annotations
@@ -48,6 +57,7 @@ class CameraVisionStatus:
     coherence: float           # 0..1 movement pulsing with the beat
     issue: str                 # "" or a short description of a quality problem
     roi: Optional[tuple]
+    quality: str = "UNKNOWN"   # HEALTHY / UNKNOWN / FAILED
 
 
 def _small_gray(rgb: np.ndarray) -> np.ndarray:
@@ -59,8 +69,25 @@ def _small_gray(rgb: np.ndarray) -> np.ndarray:
 
 
 def _sharpness(g: np.ndarray) -> float:
+    """Edge energy relative to contrast: a darker or dimmer frame is not a blurred one."""
+    if g.shape[0] < 3 or g.shape[1] < 3:
+        return 0.0
     lap = 4 * g[1:-1, 1:-1] - g[:-2, 1:-1] - g[2:, 1:-1] - g[1:-1, :-2] - g[1:-1, 2:]
-    return float(np.mean(np.abs(lap)))
+    return float(np.mean(np.abs(lap))) / (float(g.std()) + 0.03)
+
+
+def _global_shift(a: np.ndarray, b: np.ndarray) -> tuple[float, float]:
+    """(peak, shift in px) of the phase correlation of two frames: the whole picture moving."""
+    za = (a - a.mean()) / (a.std() + 1e-3)
+    zb = (b - b.mean()) / (b.std() + 1e-3)
+    fa, fb = np.fft.fft2(za), np.fft.fft2(zb)
+    r = fa * np.conj(fb)
+    r /= np.abs(r) + 1e-9
+    corr = np.fft.ifft2(r).real
+    iy, ix = np.unravel_index(int(np.argmax(corr)), corr.shape)
+    h, w = corr.shape
+    dy, dx = (iy if iy <= h // 2 else iy - h), (ix if ix <= w // 2 else ix - w)
+    return float(corr.max()), float((dx * dx + dy * dy) ** 0.5)
 
 
 def _crop(g: np.ndarray, roi: Optional[tuple]) -> np.ndarray:
@@ -84,6 +111,10 @@ class CameraVision:
         self.sharp = 0.0
         self.sharp_ref: Optional[float] = None
         self.sharp_samples = 0
+        self.std = 0.0
+        self.roi_sharp = 0.0
+        self.roi_ref: Optional[float] = None
+        self.moving_frames = 0
         self.motion = 0.0
         self.motion_full = 0.0
         self.same_since: Optional[float] = None
@@ -94,15 +125,22 @@ class CameraVision:
         self.issue = ""
         self.ok_since = 0.0
         self.rgb: Optional[np.ndarray] = None
+        self._roi: Optional[tuple] = None
 
     def update(self, t: float, rgb: np.ndarray, roi: Optional[tuple] = None) -> None:
         g = _small_gray(rgb)
         self.rgb = rgb
         self.times.append(t)
         self.brightness = float(g.mean())
+        self.std = float(g.std())
         self.clipped = float((g > 0.97).mean())
         self.sharp = _sharpness(g)
+        self.roi_sharp = _sharpness(_crop(g, roi)) if roi else 0.0
+        self._roi = roi
         if self.prev is not None and self.prev.shape == g.shape:
+            peak, shift = _global_shift(self.prev, g)
+            # the whole picture slides consistently: the camera is being moved (not people, not lights)
+            self.moving_frames = self.moving_frames + 1 if (peak > 0.25 and shift >= 2.0) else 0
             diff = np.abs(g - self.prev)
             self.motion_full = float(diff.mean())
             reg = _crop(diff, roi)
@@ -118,15 +156,27 @@ class CameraVision:
         self._update_issue(t)
 
     def _raw_issue(self, t: float) -> str:
-        if self.brightness < 0.05:
-            return "black frame"
+        if self.brightness < 0.04 and self.std < 0.03:
+            return "black frame"                   # empty picture, not just a dark club
         if self.clipped > 0.6:
             return "overexposed"
         if self.same_since is not None and t - self.same_since >= FROZEN_AFTER:
             return "frozen image"
+        if self.moving_frames >= 3:
+            return "camera moving"
         if self.sharp_ref is not None and self.sharp_samples >= 10 and self.sharp < 0.35 * self.sharp_ref:
             return "blurred or blocked"
+        if (self._roi and self.roi_ref is not None and self.sharp_samples >= 10
+                and self.roi_sharp < 0.35 * self.roi_ref):
+            return "mixer not visible"
         return ""
+
+    def quality(self, t: float) -> str:
+        if t - self.last_t > STALE_AFTER:
+            return "UNKNOWN"
+        if self.issue:
+            return "FAILED"
+        return "HEALTHY" if self.sharp_samples >= 10 else "UNKNOWN"
 
     def _update_issue(self, t: float) -> None:
         raw = self._raw_issue(t)
@@ -136,6 +186,9 @@ class CameraVision:
                 self.sharp_ref = self.sharp
             else:
                 self.sharp_ref += (self.sharp - self.sharp_ref) * 0.03
+            if self._roi:
+                self.roi_ref = self.roi_sharp if self.roi_ref is None else (
+                    self.roi_ref + (self.roi_sharp - self.roi_ref) * 0.03)
             self.sharp_samples += 1
         if raw != self.raw_issue:
             self.raw_issue, self.raw_issue_since = raw, t
@@ -237,6 +290,11 @@ class FastVisualAnalyzer:
             cam = self._fresh(name, now)
             return cam.issue if cam is not None else ""
 
+    def quality(self, name: str, now: float) -> str:
+        with self._lock:
+            cam = self._cams.get(name)
+            return cam.quality(now) if cam is not None else "UNKNOWN"
+
     def activity(self, name: str, now: float) -> Optional[float]:
         with self._lock:
             cam = self._fresh(name, now)
@@ -264,4 +322,4 @@ class FastVisualAnalyzer:
             rel = cam.sharp / cam.sharp_ref if cam.sharp_ref else 1.0
             return CameraVisionStatus(name, True, now - cam.last_t, cam.fps(), cam.brightness, rel,
                                       cam.motion, cam.coherence(now, self.beat_period), cam.issue,
-                                      self.rois.get(name))
+                                      self.rois.get(name), cam.quality(now))

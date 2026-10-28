@@ -28,7 +28,8 @@ OLLAMA_DOWNLOAD = "https://ollama.com/download"
 RATE_LABELS = {"low": "Low (5 stills/s, lightest for OBS; no beat reading)", "normal": "Normal (10 stills/s)",
                "high": "High (16 stills/s, best beat reading)"}
 ISSUE_LABELS = {"black frame": "black / dark", "overexposed": "overexposed", "frozen image": "frozen image",
-                "blurred or blocked": "blurred or blocked"}
+                "blurred or blocked": "blurred or blocked", "camera moving": "camera moving",
+                "mixer not visible": "mixer not visible"}
 
 
 class RoiEditor(QFrame):
@@ -514,7 +515,8 @@ class VisionPage(QWidget):
             if not c.has_frame or c.age > 3:
                 vals = [c.name, tr("no picture"), "–", "–", "–", "–", tr("no information")]
             else:
-                ok = tr(ISSUE_LABELS.get(c.issue, c.issue)) if c.issue else tr("OK")
+                ok = tr(ISSUE_LABELS.get(c.issue, c.issue)) if c.issue else (
+                    tr("OK") if c.quality == "HEALTHY" else tr("learning…"))
                 vals = [c.name, f"{c.fps:.1f} fps", f"{c.brightness * 100:.0f}%", f"{c.sharpness * 100:.0f}%",
                         f"{c.motion * 100:.0f}%" + (" ▣" if c.roi else ""), f"{c.coherence * 100:.0f}%", ok]
             for col, val in enumerate(vals):

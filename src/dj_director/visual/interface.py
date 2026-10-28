@@ -19,6 +19,8 @@ Contract:
 * ``issue`` returns "" or why the camera is unairable right now (black,
   frozen, blurred / blocked, or judged unusable by the slow eye): a veto.
 * ``reveal_hint`` returns the scene the slow eye suggests for the next drop.
+* ``quality`` returns HEALTHY / UNKNOWN / FAILED; missing analysis is UNKNOWN,
+  never assumed good.
 All must be cheap (cached), never block, and never claim more than they
 measure (hand *movement* is not "EQ adjustment").
 """
@@ -39,6 +41,8 @@ class VisualAnalyzer(Protocol):
 
     def reveal_hint(self) -> Optional[str]: ...
 
+    def quality(self, camera_name: str) -> str: ...
+
 
 class NullVisualAnalyzer:
     """No visual information (offline replay, tests)."""
@@ -57,3 +61,6 @@ class NullVisualAnalyzer:
 
     def reveal_hint(self) -> Optional[str]:
         return None
+
+    def quality(self, camera_name: str) -> str:
+        return "UNKNOWN"

@@ -385,3 +385,53 @@ def test_service_starts_when_enabled_later_and_restarts_on_changes(monkeypatch):
     cfg3.vision.enabled = False
     vs.reconfigure(cfg3)
     assert vs.grabber is None
+
+
+# ----------------------------------------------------------------------------- quality gate (0.4)
+def test_quality_states_unknown_healthy_failed():
+    fa = FastVisualAnalyzer()
+    assert fa.quality("A", 0.0) == "UNKNOWN"                       # never seen: not "good"
+    t = feed(fa, "A", [frame(block_x=i * 10) for i in range(4)])
+    assert fa.quality("A", t) == "UNKNOWN"                         # still learning
+    t = feed(fa, "A", [frame(block_x=i * 10) for i in range(12)], t0=t)
+    assert fa.quality("A", t) == "HEALTHY"
+    t = feed(fa, "A", [frame(0.0)] * 10, t0=t)
+    assert fa.quality("A", t) == "FAILED"
+    assert fa.quality("A", t + 10) == "UNKNOWN"                    # stale
+
+
+def test_camera_being_moved_is_detected_but_people_and_strobes_are_not():
+    moving = FastVisualAnalyzer()
+    t = feed(moving, "A", [frame(block_x=50)] * 12)
+    t = feed(moving, "A", [np.roll(frame(block_x=50), 6 * (i + 1), axis=1) for i in range(10)], t0=t)
+    assert moving.issue("A", t) == "camera moving"
+    crowd = FastVisualAnalyzer()
+    rng = np.random.default_rng(5)
+    t = feed(crowd, "C", [frame(block_x=int(rng.integers(0, 300)), roi_block=(int(rng.integers(0, 340)),
+                                                                              int(rng.integers(0, 180))))
+                          for _ in range(30)])
+    assert crowd.issue("C", t) == ""
+    strobe = FastVisualAnalyzer()
+    t = feed(strobe, "S", [frame(1.0 if i % 2 else 0.3, block_x=40) for i in range(30)])
+    assert strobe.issue("S", t) == ""
+
+
+def test_dark_club_lighting_is_not_a_black_or_blurred_camera():
+    fa = FastVisualAnalyzer()
+    t = feed(fa, "A", [frame(block_x=i * 5) for i in range(20)])
+    t = feed(fa, "A", [frame(0.12, block_x=i * 5) for i in range(20)], t0=t)    # lights down
+    assert fa.issue("A", t) == "" and fa.quality("A", t) == "HEALTHY"
+
+
+def test_mixer_region_blocked_is_reported():
+    fa = FastVisualAnalyzer()
+    fa.set_rois({"D": [0.0, 0.0, 0.4, 0.4]})
+    t = feed(fa, "D", [frame(roi_block=(10 + (i % 2) * 40, 10)) for i in range(16)])
+    assert fa.issue("D", t) == ""
+    covered = []
+    for i in range(12):                               # someone stands in front of the mixer only
+        f = frame(block_x=200 + (i % 2) * 20)
+        f[:86, :153] = 90
+        covered.append(f)
+    t = feed(fa, "D", covered, t0=t)
+    assert fa.issue("D", t) == "mixer not visible"

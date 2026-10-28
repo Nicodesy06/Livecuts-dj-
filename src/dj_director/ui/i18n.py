@@ -92,7 +92,8 @@ _CLASS_IT = {"master": "master", "detail": "detail", "side": "laterali"}
 
 
 _ISSUE_IT = {"black frame": "nera / buia", "overexposed": "sovraesposta", "frozen image": "immagine bloccata",
-             "blurred or blocked": "sfocata o coperta"}
+             "blurred or blocked": "sfocata o coperta", "camera moving": "camera in movimento",
+             "mixer not visible": "mixer non visibile"}
 
 
 def _issue_it(issue: str) -> str:
@@ -118,6 +119,20 @@ _REASONS_IT: list[tuple[str, object]] = [
     (r"(master|detail|side) coverage (\d+)%/(\d+)%",
      lambda m: f"copertura {_CLASS_IT[m.group(1)]} {m.group(2)}%/{m.group(3)}%"),
     (r"exit: hard cap (\d+)s", r"uscita: limite massimo \1 s"),
+    # framing checks (config.framing)
+    (r"(.+): digital crop without a physical camera \(set 'Source'\) - it would be treated as a separate "
+     r"perspective", r"\1: crop digitale senza camera fisica (imposta 'Sorgente'): verrebbe trattato come un "
+     r"altro punto di vista"),
+    (r"(.+): digital zoom x([\d.]+) loses resolution \(fine only from a 4K source\); check it in the Vision page "
+     r"preview", r"\1: zoom digitale x\2, perde risoluzione (va bene solo da una sorgente 4K); controllalo "
+     r"nell'anteprima della pagina Visione"),
+    (r"(.+): cropped detail - make sure hands and mixer stay fully in frame",
+     r"\1: dettaglio ritagliato: controlla che mani e mixer restino interamente nell'inquadratura"),
+    (r"(.+): same camera '(.+)' at the same scale \((.+)\) - cutting between them is a jump cut; give them "
+     r"different scales", r"\1: stessa camera '\2' alla stessa scala (\3): tagliare tra loro è un jump cut; "
+     r"usa scale diverse"),
+    (r"camera '(.+)': set the scale of every crop, so they are treated as zooms, not cuts",
+     r"camera '\1': imposta la scala di ogni crop, così vengono trattati come zoom e non come tagli"),
     (r"entry: drop reveal on (.+) \(([\d.]+)\)", r"ingresso: rivelazione sul drop su \1 (\2)"),
     (r"entry: DJ (.+) \(([\d.]+)\)", lambda m: f"ingresso: il DJ {_GESTURE_IT.get(m.group(1), m.group(1))} "
                                                 f"({m.group(2)})"),
@@ -218,6 +233,17 @@ def tr_reason(reason: str) -> str:
                 break
         out.append(frag)
     return "; ".join(out)
+
+
+def tr_line(text: str) -> str:
+    """Translate a whole composed message (not split on "; "), e.g. a framing warning."""
+    if _lang != "it" or not text:
+        return text
+    for rx, rep in _COMPILED:
+        m = rx.match(text)
+        if m:
+            return rep(m) if callable(rep) else m.expand(rep)
+    return text
 
 
 def untranslated_fragments(reason: str) -> list[str]:
@@ -669,4 +695,33 @@ IT: dict[str, str] = {
     "DJ: lows cut on the mixer": "DJ: bassi tolti sul mixer", "DJ: highs cut on the mixer": "DJ: alte tolte sul mixer",
     "DJ: high-pass filter": "DJ: filtro passa-alto", "DJ: low-pass filter": "DJ: filtro passa-basso",
     "DJ at work on the mixer": "Il DJ lavora sul mixer",
+    "camera moving": "camera in movimento", "mixer not visible": "mixer non visibile",
+    "learning…": "in apprendimento…",
+    # ---- 0.4 Director 2.0
+    "Role defaults (Natural): MASTER preferred 30–50 s, no editorial maximum · DETAIL 6–10 s, max 14 s · OVERHEAD "
+    "7–11 s, max 15 s · SIDE / BEHIND / WIDE 10–17 s, max 23 s · CROWD 6–12 s. Coverage budget: master 70 %, "
+    "inserts 30 % over 5 minutes. Cooldown = minimum time before an insert is reused.":
+        "Valori dei ruoli (Natural): MASTER preferito 30–50 s, senza massimo editoriale · DETAIL 6–10 s, max 14 s · "
+        "OVERHEAD 7–11 s, max 15 s · SIDE / BEHIND / WIDE 10–17 s, max 23 s · CROWD 6–12 s. Budget di copertura: "
+        "master 70 %, inserti 30 % su 5 minuti. Cooldown = tempo minimo prima di riusare un inserto.",
+    "Framing (shot grammar)": "Inquadrature (grammatica di ripresa)",
+    "Optional. Tell the director what each shot looks like, so it avoids jump cuts and axis jumps. Leave “unknown” "
+    "when unsure: nothing is guessed. Several OBS scenes cropped from one physical camera share the same Source and "
+    "differ in scale.":
+        "Facoltativo. Indica al regista com'è ogni inquadratura, così evita jump cut e salti d'asse. Lascia "
+        "“sconosciuto” se non sei sicuro: nulla viene indovinato. Più scene OBS ritagliate dalla stessa camera "
+        "fisica hanno la stessa Sorgente e scale diverse.",
+    "Shot size": "Scala", "Subject": "Soggetto", "Angle": "Angolazione", "Visual group": "Gruppo visivo",
+    "Source (camera)": "Sorgente (camera)", "Screen direction": "Direzione in scena", "Crop ×": "Crop ×",
+    "unknown": "sconosciuto", "wide": "campo largo", "medium": "piano medio", "close": "primo piano",
+    "extreme close": "dettaglio stretto", "hands": "mani", "equipment": "attrezzatura", "crowd": "pubblico",
+    "room": "sala", "front": "frontale", "front left": "frontale sinistra", "left": "sinistra",
+    "back left": "dietro sinistra", "back": "dietro", "back right": "dietro destra", "right": "destra",
+    "front right": "frontale destra", "from above": "dall'alto", "toward camera": "verso la camera",
+    "away from camera": "lontano dalla camera", "none": "nessuno", "No framing problems found.":
+        "Nessun problema nelle inquadrature.",
+    "Direction diagnostics": "Diagnostica della regia", "In Program": "In Program", "Source": "Sorgente",
+    "Last cut: why": "Ultimo taglio: perché", "Next cut": "Prossimo taglio",
+    "Real airtime (5 min)": "Tempo reale in onda (5 min)", "Refused / cancelled": "Rifiutati / annullati",
+    "healthy": "sana", "not verified": "non verificata", "failed": "non valida", "in {0:.1f} s": "tra {0:.1f} s",
 }

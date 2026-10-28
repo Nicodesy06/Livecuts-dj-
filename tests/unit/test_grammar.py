@@ -93,3 +93,27 @@ def test_continuous_hands_do_not_extend_a_detail_beyond_its_maximum():
     sw = switches(ds)
     durs = [(a.candidate_camera, b.t - a.t) for a, b in zip(sw, sw[1:])]
     assert all(d <= e.p.detail_hard_cap + 0.05 for c, d in durs if c == "D")
+
+
+def test_quality_gate_failed_never_chosen_unknown_not_preferred_over_healthy():
+    def mk(quality):
+        cfgs = [CameraConfig("M", role=CameraRole.MASTER, is_master=True),
+                CameraConfig("S1", role=CameraRole.SIDE), CameraConfig("S2", role=CameraRole.SIDE),
+                CameraConfig("D", role=CameraRole.DETAIL)]
+        p = PRESETS["natural"]
+        return DirectorEngine(CameraRegistry.from_configs(cfgs), p, EngineSettings(), seed=1,
+                              visual_quality=lambda cam: quality.get(cam.name, "HEALTHY"),
+                              visual_issue=lambda cam: "camera moving" if quality.get(cam.name) == "FAILED" else "")
+    seq = [d.candidate_camera for d in switches(run(mk({"S1": "FAILED"}), 1200))]
+    assert "S1" not in seq and "S2" in seq
+    ranked = mk({"S1": "UNKNOWN"})
+    ranked.tick(0, snap(0))
+    cov, tg = ranked.coverage(1.0), ranked.coverage_targets()
+    parts = {c.camera.name: c.parts for c in ranked.planner.what(1.0, ranked.reg.get("M"), MusicState.STABLE_GROOVE,
+                                                                  cov, tg, None)}
+    assert parts["S1"].get("quality") == -0.05 and "quality" not in parts["S2"]
+    nothing_known = mk({"S1": "UNKNOWN", "S2": "UNKNOWN", "D": "UNKNOWN", "M": "UNKNOWN"})
+    nothing_known.tick(0, snap(0))
+    parts = {c.camera.name: c.parts for c in nothing_known.planner.what(
+        1.0, nothing_known.reg.get("M"), MusicState.STABLE_GROOVE, cov, tg, None)}
+    assert all("quality" not in p for p in parts.values())      # without analysis nobody is penalised

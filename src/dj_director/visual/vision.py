@@ -159,6 +159,14 @@ class VisionService:
             return f"AI: {j.issue or 'not usable'}"
         return ""
 
+    def quality(self, camera_name: str) -> str:
+        """HEALTHY / UNKNOWN / FAILED. No analysis (vision off, no picture yet) is UNKNOWN, never HEALTHY."""
+        if not self.vcfg.enabled:
+            return "UNKNOWN"
+        if self.issue(camera_name):
+            return "FAILED"
+        return self.fast.quality(camera_name, self.clock())
+
     def reveal_hint(self) -> Optional[str]:
         r = self.judge.latest(self.clock()) if self.judge is not None else None
         return r.drop_pick if r is not None else None

@@ -143,7 +143,8 @@ def test_vision_page_live_view_roi_and_provider(qapp, tmp_path):
         while time.time() < deadline:
             qapp.processEvents()
             page.refresh(ctrl.snapshot())
-            if page.table.rowCount() == 2 and page.table.item(1, 6) and "black" in page.table.item(1, 6).text():
+            if (page.table.rowCount() == 2 and page.table.item(1, 6) and "black" in page.table.item(1, 6).text()
+                    and page.table.item(0, 6).text() == "OK"):
                 break
             time.sleep(0.1)
         assert "black" in page.table.item(1, 6).text() and page.table.item(0, 6).text() == "OK"
@@ -164,3 +165,35 @@ def test_vision_page_live_view_roi_and_provider(qapp, tmp_path):
         page.close()
         ctrl.shutdown()
         srv.stop()
+
+
+def test_cameras_page_framing_editor_saves_metadata_and_warns(qapp):
+    from dj_director.config.schema import AppConfig, CameraConfig, CameraRole, ShotSize, Subject, ViewAngle
+    from dj_director.ui.settings_pages import CamerasPage
+    cfg = AppConfig(first_run_done=True)
+    cfg.cameras = [CameraConfig("CAM1 Wide", role=CameraRole.MASTER, is_master=True),
+                   CameraConfig("CAM1 Medium", role=CameraRole.SIDE)]
+    ConfigManager().save(cfg)
+    ctrl = AppController()
+    page = CamerasPage(ctrl)
+    try:
+        assert page.framing.rowCount() == 2
+        w = page.framing.cellWidget
+        for r, size in ((0, "WIDE"), (1, "WIDE")):         # same camera, same scale: a jump cut setup
+            w(r, 1).setCurrentIndex(w(r, 1).findData(size))
+            w(r, 5).setText("cam1")
+        w(1, 2).setCurrentIndex(w(1, 2).findData("DJ"))
+        w(1, 3).setCurrentIndex(w(1, 3).findData("FRONT"))
+        w(1, 7).setValue(1.6)
+        page.save()
+        saved = {c.scene_name: c for c in ConfigManager().load().cameras}
+        m = saved["CAM1 Medium"]
+        assert (m.shot_size, m.subject, m.view_angle, m.source_group, m.crop_zoom) == (
+            ShotSize.WIDE, Subject.DJ, ViewAngle.FRONT, "cam1", 1.6)
+        assert "jump cut" in page.framing_warn.text()
+        w(1, 1).setCurrentIndex(w(1, 1).findData("MEDIUM"))
+        page.save()
+        assert page.framing_warn.text() == "No framing problems found."
+    finally:
+        page.close()
+        ctrl.shutdown()

@@ -17,10 +17,18 @@ from dj_director.audio.backends import list_input_devices, list_loopback_devices
 from dj_director.audio.probe import recommend
 from dj_director.ui.source_detect import SourceDetectBox
 from dj_director.config.presets import PRESET_DESCRIPTIONS, PRESETS
-from dj_director.config.schema import CameraConfig, CameraRole, DirectorParams, ROLE_DURATIONS
+from dj_director.config.framing import framing_warnings
+from dj_director.config.schema import (CameraConfig, CameraRole, DirectorParams, ROLE_DURATIONS, ScreenDirection,
+                                       ShotSize, Subject, ViewAngle)
 from dj_director.core.controller import AppController, AppSnapshot
 from dj_director.ui import theme as T
 from dj_director.ui.widgets import Card, LevelMeter, Worker, label
+
+
+def tr_warning(w: str) -> str:
+    """Framing warnings are composed from a few fixed sentences (see config.framing)."""
+    from dj_director.ui.i18n import tr_line
+    return tr_line(w)
 
 
 def page_scaffold(title: str, subtitle: str) -> tuple[QWidget, QVBoxLayout]:
@@ -46,6 +54,14 @@ def page_scaffold(title: str, subtitle: str) -> tuple[QWidget, QVBoxLayout]:
 class CamerasPage(QWidget):
     COLS = ["Use", "OBS scene", "Role", "Master", "Weight", "Min s", "Pref. min s", "Pref. max s", "Hard cap s",
             "Cooldown s", "Status"]
+    FRAMING_COLS = ["OBS scene", "Shot size", "Subject", "Angle", "Visual group", "Source (camera)",
+                    "Screen direction", "Crop ×"]
+    ENUM_LABELS = {"UNKNOWN": "unknown", "WIDE": "wide", "MEDIUM": "medium", "CLOSE": "close",
+                   "EXTREME_CLOSE": "extreme close", "DJ": "DJ", "HANDS": "hands", "EQUIPMENT": "equipment",
+                   "CROWD": "crowd", "ENVIRONMENT": "room", "FRONT": "front", "FRONT_LEFT": "front left",
+                   "LEFT": "left", "BACK_LEFT": "back left", "BACK": "back", "BACK_RIGHT": "back right",
+                   "RIGHT": "right", "FRONT_RIGHT": "front right", "TOP": "from above", "TOWARD": "toward camera",
+                   "AWAY": "away from camera"}
 
     def __init__(self, ctrl: AppController) -> None:
         super().__init__()
@@ -79,10 +95,30 @@ class CamerasPage(QWidget):
         for col in range(4, 10):
             self.table.setColumnWidth(col, 100)
         v.addWidget(self.table)
-        v.addWidget(label(tr("Role defaults (Natural): MASTER preferred 20–50 s, no rigid maximum · DETAIL / OVERHEAD "
-                          "preferred 6–10 s, hard cap 12–15 s · SIDE / BEHIND / WIDE preferred 10–18 s, hard cap "
-                          "20–25 s. Coverage budget: master 70 %, detail 15 %, side 15 % over 5 minutes. "
+        v.addWidget(label(tr("Role defaults (Natural): MASTER preferred 30–50 s, no editorial maximum · DETAIL "
+                          "6–10 s, max 14 s · OVERHEAD 7–11 s, max 15 s · SIDE / BEHIND / WIDE 10–17 s, max 23 s · "
+                          "CROWD 6–12 s. Coverage budget: master 70 %, inserts 30 % over 5 minutes. "
                           "Cooldown = minimum time before an insert is reused."), "Faint", wrap=True))
+        fr = QGroupBox(tr("Framing (shot grammar)"))
+        fv = QVBoxLayout(fr)
+        fv.addWidget(label(tr(
+            "Optional. Tell the director what each shot looks like, so it avoids jump cuts and axis jumps. "
+            "Leave “unknown” when unsure: nothing is guessed. Several OBS scenes cropped from one physical "
+            "camera share the same Source and differ in scale."), "Muted", wrap=True))
+        self.framing = QTableWidget(0, len(self.FRAMING_COLS))
+        self.framing.setHorizontalHeaderLabels([tr(c) for c in self.FRAMING_COLS])
+        self.framing.verticalHeader().setVisible(False)
+        self.framing.setSelectionMode(QAbstractItemView.NoSelection)
+        self.framing.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.framing.verticalHeader().setDefaultSectionSize(44)
+        self.framing.setMinimumHeight(240)
+        self.framing.setStyleSheet(self.table.styleSheet())
+        for col in range(1, len(self.FRAMING_COLS)):
+            self.framing.setColumnWidth(col, 130)
+        fv.addWidget(self.framing)
+        self.framing_warn = label("", "Muted", wrap=True)
+        fv.addWidget(self.framing_warn)
+        v.addWidget(fr)
         v.addStretch()
         self.btn_refresh.clicked.connect(self.reload)
         self.btn_save.clicked.connect(self.save)
@@ -126,6 +162,48 @@ class CamerasPage(QWidget):
             self.table.setItem(r, 10, st)
         self.status.setText(tr("{0} scenes in OBS").format(len(obs_scenes)) if obs_scenes else
                             tr("OBS not connected: showing saved cameras only"))
+        self.framing.setRowCount(0)
+        for name in names:
+            c = known.get(name) or CameraConfig(scene_name=name)
+            r = self.framing.rowCount()
+            self.framing.insertRow(r)
+            it = QTableWidgetItem(name)
+            it.setFlags(Qt.ItemIsEnabled)
+            self.framing.setItem(r, 0, it)
+            for col, (enum, val) in enumerate(((ShotSize, c.shot_size), (Subject, c.subject), (ViewAngle, c.view_angle)),
+                                              start=1):
+                self.framing.setCellWidget(r, col, self._enum_combo(enum, val))
+            for col, val in ((4, c.visual_group), (5, c.source_group)):
+                ed = QLineEdit(val)
+                ed.setPlaceholderText("—")
+                self.framing.setCellWidget(r, col, ed)
+            self.framing.setCellWidget(r, 6, self._enum_combo(ScreenDirection, c.screen_direction))
+            z = self._dspin(c.crop_zoom, 1.0, 8.0, 0.1)
+            z.setSpecialValueText(tr("none"))
+            self.framing.setCellWidget(r, 7, z)
+        self._show_framing_warnings(list(known.values()))
+
+    def _enum_combo(self, enum, value) -> QComboBox:
+        cb = QComboBox()
+        for m in enum:
+            cb.addItem(tr(self.ENUM_LABELS.get(m.value, m.value)), m.value)
+        cb.setCurrentIndex(max(0, cb.findData(value.value)))
+        return cb
+
+    def _framing_of(self, name: str) -> dict:
+        for r in range(self.framing.rowCount()):
+            if self.framing.item(r, 0).text() == name:
+                w = self.framing.cellWidget
+                return dict(shot_size=ShotSize(w(r, 1).currentData()), subject=Subject(w(r, 2).currentData()),
+                            view_angle=ViewAngle(w(r, 3).currentData()), visual_group=w(r, 4).text().strip(),
+                            source_group=w(r, 5).text().strip(),
+                            screen_direction=ScreenDirection(w(r, 6).currentData()), crop_zoom=w(r, 7).value())
+        return {}
+
+    def _show_framing_warnings(self, cams) -> None:
+        warns = framing_warnings(cams)
+        self.framing_warn.setText("\n".join("⚠ " + tr_warning(w) for w in warns) if warns else
+                                  tr("No framing problems found."))
 
     @staticmethod
     def _duration_cells(c) -> tuple[float, float, float, float]:
@@ -146,7 +224,7 @@ class CamerasPage(QWidget):
                           ("side", CameraRole.SIDE), ("later", CameraRole.SIDE), ("wide", CameraRole.WIDE),
                           ("behind", CameraRole.BEHIND), ("back", CameraRole.BEHIND), ("dietro", CameraRole.BEHIND),
                           ("retro", CameraRole.BEHIND),
-                          ("crowd", CameraRole.WIDE), ("top", CameraRole.OVERHEAD),
+                          ("crowd", CameraRole.CROWD), ("pubblico", CameraRole.CROWD), ("top", CameraRole.OVERHEAD),
                           ("overhead", CameraRole.OVERHEAD)):
             if key in n:
                 return role
@@ -190,6 +268,8 @@ class CamerasPage(QWidget):
             cam.weight, cam.min_duration = vals[0], vals[1]
             cam.preferred_min, cam.preferred_max, cam.hard_cap, cam.cooldown = vals[2], vals[3], vals[4], vals[5]
             cam.mean_duration = cam.max_duration = 0.0      # legacy fields now expressed by the new ones
+            for k, val in self._framing_of(name).items():
+                setattr(cam, k, val)
             cams.append(cam)
         if cams and not any(c.is_master for c in cams):
             m = next((c for c in cams if c.role == CameraRole.MASTER), None)
@@ -200,6 +280,7 @@ class CamerasPage(QWidget):
         cfg.cameras = cams
         self.ctrl.apply_config(cfg)
         self.status.setText(tr("Saved {0} cameras").format(len(cams)))
+        self._show_framing_warnings(cams)
 
     def refresh(self, s: AppSnapshot) -> None:
         pass

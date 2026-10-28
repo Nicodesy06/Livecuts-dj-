@@ -101,6 +101,11 @@ class AppSnapshot:
     switch_problem: Optional[SwitchRecord] = None
     airtime: tuple = ()                # ((scene, seconds), ...) confirmed on air, sliding window
     program: Optional[str] = None      # what is really in Program (OBS), or the decision in Shadow
+    program_shot: str = ""             # framing of the program camera ("CLOSE HANDS", ...)
+    program_quality: str = "UNKNOWN"   # HEALTHY / UNKNOWN / FAILED (+ issue in vision status)
+    pending_plan: tuple = ()           # why / what / when / how long of the next planned cut
+    pending_in: float = 0.0            # seconds until it fires
+    last_cancel: str = ""              # last cut the director refused / cancelled, with its reason
 
 
 class AppController:
@@ -160,7 +165,8 @@ class AppController:
                               visual_fit=lambda cam: self.visual.score(cam.name) or 0.0,
                               visual_activity=lambda cam: self.visual.activity(cam.name),
                               visual_issue=lambda cam: self.visual.issue(cam.name),
-                              reveal_hint=self.visual.reveal_hint)
+                              reveal_hint=self.visual.reveal_hint,
+                              visual_quality=lambda cam: self.visual.quality(cam.name))
 
     def _vision_context(self) -> dict:
         snap = self.analysis.latest()
@@ -530,9 +536,29 @@ class AppController:
         self.decision_log.write("DirectorDecision", d)
 
     # ------------------------------------------------------------------ UI snapshot
+    def _shot_label(self, scene: Optional[str]) -> str:
+        cam = self.registry.get(scene)
+        if cam is None:
+            return ""
+        from dj_director.director.shot_planner import describe_shot
+        return describe_shot(cam).split("(", 1)[-1].rstrip(")")
+
+    def _last_cancel(self) -> str:
+        """Most recent cut that was not executed: engine CANCEL, or a request OBS failed / we cancelled."""
+        best_t, text = -1.0, ""
+        for d in reversed(self.decisions):
+            if d.action == DirectorAction.CANCEL:
+                best_t, text = d.t, f"{d.candidate_camera}: {d.reason}"
+                break
+        rec = self.switches.last_problem()
+        if rec is not None and rec.t_status > best_t:
+            text = f"{rec.scene}: {rec.status.value.lower()} ({rec.detail})"
+        return text
+
     def snapshot(self) -> AppSnapshot:
         e = self.engine
         now = time.monotonic()
+        prog = self.airtime.current() if self.shadow or not self.obs.connected else (self.obs.program or None)
         music = self.analysis.latest()
         audio = self.audio.status()
         b = self.audio.backend
@@ -557,7 +583,12 @@ class AppController:
             switches=tuple(self.switches.recent(8)),
             switch_problem=self.switches.last_problem(),
             airtime=tuple(sorted(self.airtime.shares(now).items(), key=lambda kv: -kv[1])),
-            program=self.airtime.current() if self.shadow or not self.obs.connected else (self.obs.program or None))
+            program=prog,
+            program_shot=self._shot_label(prog),
+            program_quality=self.visual.quality(prog) if prog else "UNKNOWN",
+            pending_plan=e.pending.plan if e.pending else (),
+            pending_in=max(0.0, e.pending.fire_at - now) if e.pending else 0.0,
+            last_cancel=self._last_cancel())
 
     def _coverage(self, now: float) -> tuple:
         e = self.engine

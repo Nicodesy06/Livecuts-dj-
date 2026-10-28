@@ -137,6 +137,23 @@ class DashboardPage(QWidget):
         self.tiles: dict[str, CameraTile] = {}
         self._tiles_key = None
 
+        # --- diagnostics (what is really on air, what comes next, what was refused)
+        dg = Card(tr("Direction diagnostics"))
+        g = QGridLayout()
+        g.setHorizontalSpacing(18)
+        self.diag = {}
+        for i, (key, title) in enumerate((("program", "In Program"), ("quality", "Source"),
+                                          ("why", "Last cut: why"), ("next", "Next cut"),
+                                          ("airtime", "Real airtime (5 min)"), ("refused", "Refused / cancelled"))):
+            g.addWidget(label(tr(title), "Faint"), i // 2, (i % 2) * 2)
+            val = label("—", "Muted", wrap=True)
+            g.addWidget(val, i // 2, (i % 2) * 2 + 1)
+            self.diag[key] = val
+        g.setColumnStretch(1, 1)
+        g.setColumnStretch(3, 1)
+        dg.lay.addLayout(g)
+        root.addWidget(dg)
+
         # --- decisions
         dc = Card(tr("Recent decisions"))
         self.feed = QListWidget()
@@ -145,6 +162,36 @@ class DashboardPage(QWidget):
         dc.lay.addWidget(self.feed)
         root.addWidget(dc, 1)
         self._feed_count = 0
+
+    def _refresh_diagnostics(self, s: AppSnapshot) -> None:
+        d = self.diag
+        prog = s.program or "—"
+        d["program"].setText(prog + (f" · {s.program_shot}" if s.program_shot else ""))
+        issue = ""
+        if s.vision is not None:
+            issue = next((c.issue for c in s.vision.cameras if c.name == s.program and c.issue), "")
+        q = {"HEALTHY": tr("healthy"), "UNKNOWN": tr("not verified"), "FAILED": tr("failed")}.get(
+            s.program_quality, s.program_quality)
+        d["quality"].setText(q + (f" · {tr(issue)}" if issue else ""))
+        d["quality"].setStyleSheet(f"color: {T.OK if s.program_quality == 'HEALTHY' else T.LIVE if s.program_quality == 'FAILED' else T.MUTED};")
+        why = ""
+        if s.last_switch is not None:
+            plan = dict(s.last_switch.plan)
+            why = tr_reason(plan.get("why", s.last_switch.reason.split("; ")[0]))
+            if plan.get("how_long"):
+                why += f" · {plan['how_long']}"
+        d["why"].setText(why or "—")
+        if s.pending_target:
+            plan = dict(s.pending_plan)
+            nxt = f"{s.pending_target} · {tr('in {0:.1f} s').format(s.pending_in)}"
+            if plan.get("why"):
+                nxt += f" · {tr_reason(plan['why'])}"
+            d["next"].setText(nxt)
+        else:
+            d["next"].setText("—")
+        tot = sum(sec for _, sec in s.airtime) or 1.0
+        d["airtime"].setText(" · ".join(f"{n} {sec / tot * 100:.0f}%" for n, sec in s.airtime[:5]) or "—")
+        d["refused"].setText(tr_reason(s.last_cancel) if s.last_cancel else "—")
 
     def _pause_resume(self) -> None:
         if self.ctrl.status == DirectorStatus.PAUSED or self.ctrl.snapshot().override_active:
@@ -288,6 +335,7 @@ class DashboardPage(QWidget):
                 vis.append(tr("AI: {0}").format(s.vision.judge.note))
         if vis:
             self.coverage.setText(self.coverage.text() + ("\n" if self.coverage.text() else "") + " · ".join(vis))
+        self._refresh_diagnostics(s)
         if s.last_switch:
             self.last_reason.setText(tr("Last cut → {0}: {1}").format(s.last_switch.candidate_camera, tr_reason(s.last_switch.reason)))
         else:
